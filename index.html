@@ -77,7 +77,8 @@
                 NavLeft: <polyline points="18 4 8 12 18 20" />,
                 NavRight: <polyline points="6 4 16 12 6 20" />,
                 Sparkles: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3 1.912 5.886L20 10.8l-5.886 1.912L12 18.614l-1.912-5.886L4.2 10.8l5.886-1.912z"/><path d="M5 3v4"/><path d="M3 5h4"/><path d="M21 17v4"/><path d="M19 19h4"/></g>,
-                Info: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></g>
+                Info: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></g>,
+                Home: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></g>
             };
             return (
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
@@ -120,7 +121,7 @@
             const [wrongBank, setWrongBank] = useState([]);
             const [stats, setStats] = useState({});
             const [newAchievement, setNewAchievement] = useState(null);
-            const [achievementTip, setAchievementTip] = useState(null); // 用於顯示成就條件提示
+            const [achievementTip, setAchievementTip] = useState(null); 
 
             const [timeLeft, setTimeLeft] = useState(0);
             const timerRef = useRef(null);
@@ -206,7 +207,7 @@
 
             const AchievementsWall = () => (
                 <div className="min-h-screen p-4 md:p-8 flex items-center justify-center animate-in fade-in zoom-in duration-300">
-                    <div className="max-w-4xl w-full bg-white rounded-[3rem] shadow-2xl p-8 md:p-12 border relative overflow-hidden">
+                    <div className="max-w-4xl w-full bg-white rounded-[3rem] shadow-2xl p-8 md:p-12 border relative overflow-hidden flex flex-col">
                         
                         {/* 鎖頭點擊提示視窗 */}
                         {achievementTip && (
@@ -228,7 +229,7 @@
                             <div><h1 className="text-3xl font-black text-slate-800 uppercase tracking-tighter">成就獎章牆</h1><p className="text-slate-400 font-bold text-xs tracking-widest uppercase">🏆 街道大師的里程碑 (點擊鎖頭查看條件)</p></div>
                             <button onClick={() => setAppState('INIT')} className="p-4 bg-slate-100 hover:bg-slate-200 rounded-2xl transition-all"><Icon name="XCircle" className="text-slate-500" /></button>
                         </div>
-                        <div className="space-y-10 max-h-[65vh] overflow-y-auto px-2">
+                        <div className="space-y-10 max-h-[60vh] overflow-y-auto px-2 flex-1">
                             {Object.entries(MODE_NAMES).map(([m, label]) => (
                                 <div key={m} className="border-b border-slate-50 pb-8 last:border-0">
                                     <div className="flex justify-between items-end mb-6">
@@ -248,7 +249,6 @@
                                                 else earned = (stats[m] || 0) >= lvl.threshold;
                                             }
                                             
-                                            // 點擊處理：未解鎖時顯示提示
                                             const tipContent = m === 'MOCK' 
                                                 ? (lvl.name === "五階咕咕雞" ? `在「模擬測驗」中獲得 100 分。` : `在「模擬測驗」中完成 ${lvl.mockThreshold} 次測驗。`)
                                                 : `在「${label}」中累積練習 ${lvl.threshold} 題。`;
@@ -269,6 +269,17 @@
                                     </div>
                                 </div>
                             ))}
+                        </div>
+
+                        {/* 回首頁按鈕 */}
+                        <div className="mt-8 pt-8 border-t border-slate-100">
+                            <button 
+                                onClick={() => setAppState('INIT')} 
+                                className="w-full py-5 bg-slate-900 text-white rounded-[2rem] font-black text-xl shadow-xl hover:bg-black transition-all flex items-center justify-center gap-3"
+                            >
+                                <Icon name="Home" className="w-6 h-6 text-blue-400" />
+                                返回系統首頁
+                            </button>
                         </div>
                     </div>
                 </div>
