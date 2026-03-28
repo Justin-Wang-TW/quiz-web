@@ -18,7 +18,7 @@
     <script type="text/babel" data-type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot, getDocs, writeBatch } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+        import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot, getDocs, writeBatch, getDoc } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
 
         // --- Firebase 配置 ---
         const firebaseConfig = {
@@ -57,10 +57,15 @@
                 ChevronRight: <polyline points="9 18 15 12 9 6" />,
                 ChevronDown: <polyline points="6 9 12 15 18 9" />,
                 ChevronUp: <polyline points="18 15 12 9 6 15" />,
-                List: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></g>
+                List: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></g>,
+                Bookmark: <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" />,
+                Rotate: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" /><polyline points="21 3 21 8 16 8" /></g>,
+                Alert: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></g>,
+                NavLeft: <polyline points="18 4 8 12 18 20" />,
+                NavRight: <polyline points="6 4 16 12 6 20" />
             };
             return (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
                     {icons[name] || null}
                 </svg>
             );
@@ -78,7 +83,9 @@
             const [showFeedback, setShowFeedback] = useState(false);
             const [wrongBank, setWrongBank] = useState([]);
             const [isClearing, setIsClearing] = useState(false);
-            const [isNavOpen, setIsNavOpen] = useState(false); // 控制題號選單開關
+            const [isNavOpen, setIsNavOpen] = useState(false); 
+            const [resumePrompt, setResumePrompt] = useState(null); 
+            const [showClearModal, setShowClearModal] = useState(false);
 
             const [timeLeft, setTimeLeft] = useState(0);
             const timerRef = useRef(null);
@@ -129,22 +136,33 @@
                 else setAppState('RESULT');
             };
 
-            const handleClearWrongBank = async () => {
-                if (!window.confirm("確定要清空所有的錯題紀錄嗎？此動作無法復原。")) return;
+            const executeClearWrongBank = async () => {
+                setShowClearModal(false);
                 setIsClearing(true);
                 try {
                     const wrongRef = collection(db, 'artifacts', appId, 'users', user.uid, 'wrongQuestions');
                     const snapshot = await getDocs(wrongRef);
                     const batch = writeBatch(db);
-                    snapshot.docs.forEach((doc) => {
-                        batch.delete(doc.ref);
-                    });
+                    snapshot.docs.forEach((doc) => { batch.delete(doc.ref); });
                     await batch.commit();
                 } catch (error) {
                     console.error("Error clearing wrong questions:", error);
                 } finally {
                     setIsClearing(false);
                 }
+            };
+
+            const saveBookmark = async (mode, index) => {
+                if (!user || !mode.includes('ALL')) return;
+                const progressRef = doc(db, 'artifacts', appId, 'users', user.uid, 'fullBankProgress', mode);
+                await setDoc(progressRef, { lastIndex: index, timestamp: Date.now() });
+            };
+
+            const getBookmark = async (mode) => {
+                if (!user) return 0;
+                const progressRef = doc(db, 'artifacts', appId, 'users', user.uid, 'fullBankProgress', mode);
+                const snap = await getDoc(progressRef);
+                return snap.exists() ? snap.data().lastIndex : 0;
             };
 
             const parseCSV = (text) => {
@@ -186,29 +204,18 @@
                 return v;
             };
 
-            const fetchBank = async (mode) => {
+            const fetchBank = async (mode, startIndex = 0) => {
                 setAppState('LOADING');
                 try {
                     const [tfRes, mcRes] = await Promise.all([
                         fetch(TF_SHEET_URL).then(r => r.text()),
                         fetch(MC_SHEET_URL).then(r => r.text())
                     ]);
-                    
-                    const tfData = parseCSV(tfRes).map(q => ({ 
-                        ...q, 
-                        type: 'TF',
-                        actualExplanation: q._rawRow[3] || ""
-                    }));
-                    
-                    const mcData = parseCSV(mcRes).map(q => ({ 
-                        ...q, 
-                        type: 'MC',
-                        actualExplanation: q._rawRow[4] || ""
-                    }));
-
+                    const tfData = parseCSV(tfRes).map(q => ({ ...q, type: 'TF', actualExplanation: q._rawRow[3] || "" }));
+                    const mcData = parseCSV(mcRes).map(q => ({ ...q, type: 'MC', actualExplanation: q._rawRow[4] || "" }));
                     let selected = [];
-                    if (mode === 'TF_ALL') selected = tfData.sort(() => 0.5 - Math.random());
-                    else if (mode === 'MC_ALL') selected = mcData.sort(() => 0.5 - Math.random());
+                    if (mode === 'TF_ALL') selected = tfData;
+                    else if (mode === 'MC_ALL') selected = mcData;
                     else if (mode === 'TF_PRACTICE') selected = tfData.sort(() => 0.5 - Math.random()).slice(0, 20);
                     else if (mode === 'MC_PRACTICE') selected = mcData.sort(() => 0.5 - Math.random()).slice(0, 20);
                     else if (mode === 'WRONG_PRACTICE') selected = [...wrongBank].sort(() => 0.5 - Math.random());
@@ -217,18 +224,12 @@
                             tf: tfData.sort(() => 0.5 - Math.random()).slice(0, 50),
                             mc: mcData.sort(() => 0.5 - Math.random()).slice(0, 50)
                         };
-                        setQuizMode('MOCK');
-                        startMockPhase('TF');
-                        return;
+                        setQuizMode('MOCK'); startMockPhase('TF'); return;
                     }
-
-                    if (selected.length === 0 && mode === 'WRONG_PRACTICE') {
-                        setAppState('INIT');
-                        return;
-                    }
-
+                    if (selected.length === 0 && mode === 'WRONG_PRACTICE') { setAppState('INIT'); return; }
                     setQuestions(selected);
-                    setCurrentIndex(0); setUserAnswers({}); setCurrentSelection([]); setShowFeedback(false);
+                    setCurrentIndex(startIndex); 
+                    setUserAnswers({}); setCurrentSelection([]); setShowFeedback(false);
                     setAppState('QUIZ'); setQuizMode(mode);
                     setTimeLeft(0); setIsNavOpen(false);
                 } catch (e) { setAppState('INIT'); }
@@ -283,9 +284,11 @@
             };
 
             const moveToNext = () => {
+                const nextIdx = currentIndex + 1;
                 setShowFeedback(false);
-                if (currentIndex < questions.length - 1) {
-                    setCurrentIndex(currentIndex + 1); setCurrentSelection([]);
+                if (nextIdx < questions.length) {
+                    setCurrentIndex(nextIdx); setCurrentSelection([]);
+                    if (quizMode.includes('ALL')) saveBookmark(quizMode, nextIdx);
                 } else {
                     if (quizMode === 'MOCK' && mockStage === 'TF') startMockPhase('MC');
                     else setAppState('RESULT');
@@ -298,6 +301,12 @@
                     setCurrentIndex(currentIndex - 1);
                     setCurrentSelection([]);
                 }
+            };
+
+            const handleAllBankMode = async (mode) => {
+                const savedIndex = await getBookmark(mode);
+                if (savedIndex > 0) setResumePrompt({ mode, savedIndex });
+                else fetchBank(mode, 0);
             };
 
             const formatTime = (seconds) => {
@@ -317,67 +326,45 @@
 
             if (appState === 'INIT') return (
                 <div className="min-h-screen flex items-center justify-center p-4">
-                    <div className="max-w-2xl w-full bg-white rounded-[2.5rem] shadow-2xl p-8 md:p-12 text-center border">
-                        <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-8 shadow-lg shadow-blue-100">
-                            <Icon name="BookOpen" className="text-white" />
-                        </div>
+                    <div className="max-w-2xl w-full bg-white rounded-[2.5rem] shadow-2xl p-8 md:p-12 text-center border relative overflow-hidden">
+                        {resumePrompt && (
+                            <div className="absolute inset-0 bg-white/95 z-50 flex items-center justify-center p-8 animate-in fade-in duration-300 text-center">
+                                <div>
+                                    <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-6"><Icon name="Bookmark" className="w-8 h-8" /></div>
+                                    <h3 className="text-2xl font-black text-slate-800 mb-2">發現上次進度</h3>
+                                    <p className="text-slate-500 mb-10">要在第 <span className="text-blue-600 font-bold">{resumePrompt.savedIndex + 1}</span> 題繼續嗎？</p>
+                                    <div className="flex flex-col gap-3">
+                                        <button onClick={() => { fetchBank(resumePrompt.mode, resumePrompt.savedIndex); setResumePrompt(null); }} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg">中斷處繼續</button>
+                                        <button onClick={() => { fetchBank(resumePrompt.mode, 0); setResumePrompt(null); }} className="w-full py-4 bg-slate-100 text-slate-500 rounded-2xl font-bold flex items-center justify-center gap-2"><Icon name="Rotate" className="w-4 h-4" /> 重新開始</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        {showClearModal && (
+                            <div className="absolute inset-0 bg-black/40 z-[60] flex items-center justify-center p-4 animate-in fade-in duration-200">
+                                <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center">
+                                    <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-4"><Icon name="Alert" className="w-8 h-8" /></div>
+                                    <h3 className="text-xl font-black text-slate-800 mb-2">清空所有紀錄？</h3>
+                                    <p className="text-slate-500 mb-8">此動作將永久移除您的錯題本資料，無法復原。</p>
+                                    <div className="flex gap-3"><button onClick={() => setShowClearModal(false)} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold">取消</button><button onClick={executeClearWrongBank} className="flex-1 py-3 bg-rose-600 text-white rounded-xl font-bold shadow-lg">確認清空</button></div>
+                                </div>
+                            </div>
+                        )}
+                        <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-8 shadow-lg"><Icon name="BookOpen" className="text-white" /></div>
                         <h1 className="text-3xl font-black text-slate-800 mb-2 font-bold uppercase tracking-tight">人本街道考古題練習</h1>
                         <p className="text-slate-400 mb-10 text-sm font-bold uppercase tracking-widest">請選擇練習模式</p>
-                        
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
-                            <button onClick={() => fetchBank('TF_ALL')} className="p-5 border-2 border-slate-100 hover:border-blue-500 rounded-3xl transition-all group">
-                                <Icon name="Layers" className="text-blue-500 mb-2 group-hover:scale-110 transition-transform" />
-                                <div className="font-bold text-slate-700">是非題全題庫練習</div>
-                                <div className="text-xs text-slate-400 font-medium">不限時，跑完所有題目</div>
-                            </button>
-                            <button onClick={() => fetchBank('MC_ALL')} className="p-5 border-2 border-slate-100 hover:border-blue-500 rounded-3xl transition-all group">
-                                <Icon name="Layers" className="text-emerald-500 mb-2 group-hover:scale-110 transition-transform" />
-                                <div className="font-bold text-slate-700">選擇題全題庫練習</div>
-                                <div className="text-xs text-slate-400 font-medium">不限時，完整題庫精通</div>
-                            </button>
-                            <button onClick={() => fetchBank('TF_PRACTICE')} className="p-5 border-2 border-slate-100 hover:border-blue-500 rounded-3xl transition-all group">
-                                <Icon name="CheckCircle" className="text-blue-600 mb-2 group-hover:scale-110 transition-transform" />
-                                <div className="font-bold text-slate-700">是非題隨堂測驗</div>
-                                <div className="text-xs text-slate-400 font-medium">隨機 20 題速測</div>
-                            </button>
-                            <button onClick={() => fetchBank('MC_PRACTICE')} className="p-5 border-2 border-slate-100 hover:border-blue-500 rounded-3xl transition-all group">
-                                <Icon name="Graduation" className="text-indigo-600 mb-2 group-hover:scale-110 transition-transform" />
-                                <div className="font-bold text-slate-700">選擇題隨堂測驗</div>
-                                <div className="text-xs text-slate-400 font-medium">隨機 20 題速測</div>
-                            </button>
-                            <button onClick={() => fetchBank('MOCK')} className="p-6 bg-slate-900 text-white rounded-3xl hover:bg-black transition-all shadow-xl md:col-span-2 flex items-center justify-between group">
-                                <div className="text-left">
-                                    <div className="font-black text-xl mb-1">全真模擬試題</div>
-                                    <div className="text-xs text-blue-300 font-medium">是非/選擇各50題，限時各50分鐘</div>
-                                </div>
-                                <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                                    <Icon name="Database" className="text-blue-400 w-8 h-8" />
-                                </div>
-                            </button>
+                            <button onClick={() => handleAllBankMode('TF_ALL')} className="p-5 border-2 border-slate-100 hover:border-blue-500 rounded-3xl transition-all group flex items-start gap-4"><div className="p-2 bg-blue-50 text-blue-500 rounded-xl group-hover:scale-110 transition-transform"><Icon name="Layers" /></div><div><div className="font-bold text-slate-700 text-sm">是非全題庫練習</div><div className="text-[10px] text-slate-400 font-medium">依照序號 1-280 練習</div></div></button>
+                            <button onClick={() => handleAllBankMode('MC_ALL')} className="p-5 border-2 border-slate-100 hover:border-blue-500 rounded-3xl transition-all group flex items-start gap-4"><div className="p-2 bg-emerald-50 text-emerald-500 rounded-xl group-hover:scale-110 transition-transform"><Icon name="Layers" /></div><div><div className="font-bold text-slate-700 text-sm">選擇全題庫練習</div><div className="text-[10px] text-slate-400 font-medium">依照序號 1-280 練習</div></div></button>
+                            <button onClick={() => fetchBank('TF_PRACTICE')} className="p-5 border-2 border-slate-100 hover:border-blue-500 rounded-3xl transition-all group flex items-start gap-4"><div className="p-2 bg-blue-50 text-blue-600 rounded-xl group-hover:scale-110 transition-transform"><Icon name="CheckCircle" /></div><div><div className="font-bold text-slate-700 text-sm">是非隨堂測驗</div><div className="text-[10px] text-slate-400 font-medium">隨機抽選 20 題速測</div></div></button>
+                            <button onClick={() => fetchBank('MC_PRACTICE')} className="p-5 border-2 border-slate-100 hover:border-blue-500 rounded-3xl transition-all group flex items-start gap-4"><div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl group-hover:scale-110 transition-transform"><Icon name="Graduation" /></div><div><div className="font-bold text-slate-700 text-sm">選擇隨堂測驗</div><div className="text-[10px] text-slate-400 font-medium">隨機抽選 20 題速測</div></div></button>
+                            <button onClick={() => fetchBank('MOCK')} className="p-6 bg-slate-900 text-white rounded-3xl hover:bg-black transition-all shadow-xl md:col-span-2 flex items-center justify-between group"><div className="text-left"><div className="font-black text-xl mb-1">全真模擬試題</div><div className="text-xs text-blue-300 font-medium">是非/選擇各50題，限時各50分鐘</div></div><div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform"><Icon name="Database" className="text-blue-400 w-8 h-8" /></div></button>
                             <div className="relative group md:col-span-2">
-                                <button 
-                                    disabled={wrongBank.length === 0} 
-                                    onClick={() => fetchBank('WRONG_PRACTICE')} 
-                                    className={`w-full h-full p-6 border-2 rounded-3xl transition-all ${wrongBank.length > 0 ? 'bg-rose-50 border-rose-100 hover:border-rose-400' : 'bg-slate-50 border-slate-100 opacity-40'}`}
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-12 h-12 bg-rose-500 rounded-2xl text-white flex items-center justify-center">
-                                            <Icon name="XCircle" className="w-7 h-7" />
-                                        </div>
-                                        <div className="text-left">
-                                            <div className="font-black text-slate-800 text-lg">錯題強化練習</div>
-                                            <div className="text-xs text-rose-400 font-bold uppercase tracking-wider">目前累積 {wrongBank.length} 題</div>
-                                        </div>
-                                    </div>
+                                <button disabled={wrongBank.length === 0} onClick={() => fetchBank('WRONG_PRACTICE')} className={`w-full h-full p-6 border-2 rounded-3xl transition-all ${wrongBank.length > 0 ? 'bg-rose-50 border-rose-100 hover:border-rose-400' : 'bg-slate-50 border-slate-100 opacity-40'}`}>
+                                    <div className="flex items-center gap-3"><div className="w-12 h-12 bg-rose-500 rounded-2xl text-white flex items-center justify-center"><Icon name="XCircle" className="w-7 h-7" /></div><div className="text-left"><div className="font-black text-slate-800 text-lg">錯題強化練習</div><div className="text-xs text-rose-400 font-bold uppercase">目前累積 {wrongBank.length} 題</div></div></div>
                                 </button>
                                 {wrongBank.length > 0 && (
-                                    <button 
-                                        onClick={handleClearWrongBank}
-                                        disabled={isClearing}
-                                        className="absolute top-1/2 -translate-y-1/2 right-6 p-4 text-rose-300 hover:text-rose-600 hover:bg-rose-100/50 rounded-2xl transition-all"
-                                    >
-                                        <Icon name="Trash" className="w-6 h-6" />
-                                    </button>
+                                    <button onClick={() => setShowClearModal(true)} disabled={isClearing} className="absolute top-1/2 -translate-y-1/2 right-6 p-4 text-rose-300 hover:text-rose-600 hover:bg-rose-100/50 rounded-2xl transition-all"><Icon name="Trash" className="w-6 h-6" /></button>
                                 )}
                             </div>
                         </div>
@@ -386,10 +373,7 @@
             );
 
             if (appState === 'LOADING') return (
-                <div className="min-h-screen flex flex-col items-center justify-center font-bold text-slate-500">
-                    <div className="w-14 h-14 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
-                    <span className="uppercase tracking-widest text-sm">正在讀取雲端題庫</span>
-                </div>
+                <div className="min-h-screen flex flex-col items-center justify-center font-bold text-slate-500"><div className="w-14 h-14 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div><span className="tracking-widest text-sm uppercase">正在同步進度</span></div>
             );
 
             if (appState === 'QUIZ') {
@@ -398,132 +382,94 @@
                 const ansKeyBase = mockStage === 'MC' ? 50 : 0;
                 const ansKey = currentIndex + ansKeyBase;
                 const userAns = userAnswers[ansKey];
+                const isCorrect = checkAnswer(userAns, q.actualAnswer);
                 const options = q.type === 'TF' ? [{key:'O', val:'正確 (O)'}, {key:'X', val:'錯誤 (X)'}] : (() => {
                     const matches = [...q.rawOptions.matchAll(/([A-E])[.、\s]+(.*?)(?=\s*[A-E][.、\s]|$)/g)];
                     return matches.length > 0 ? matches.map(m => ({ key: m[1], val: m[2].trim() })) : q.rawOptions.split(/\s+/).filter(s=>s).map((s,i)=>({key:String.fromCharCode(65+i), val:s}));
                 })();
 
+                const showResultButton = (quizMode === 'MOCK' && currentIndex === 49);
+
                 return (
                     <div className="min-h-screen p-4 md:p-8 flex flex-col items-center">
                         <div className="max-w-4xl w-full">
-                            {/* 模擬考開闔式導覽面板 */}
                             {quizMode === 'MOCK' && (
                                 <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-4 mb-6 transition-all overflow-hidden">
-                                    <button 
-                                        onClick={() => setIsNavOpen(!isNavOpen)}
-                                        className="w-full flex justify-between items-center px-2 py-1 hover:bg-slate-50 rounded-xl transition-colors"
-                                    >
-                                        <div className="flex items-center gap-3">
-                                            <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
-                                                <Icon name="List" className="w-5 h-5" />
-                                            </div>
-                                            <div className="text-left">
-                                                <div className="font-black text-slate-700 text-sm">模擬考：{mockStage === 'TF' ? '是非題' : '選擇題'}</div>
-                                                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">已完成 {Object.keys(userAnswers).filter(k => (mockStage === 'TF' ? k < 50 : k >= 50)).length} / 50 題</div>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-4">
-                                            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full font-mono font-bold text-xs shadow-inner ${timeLeft < 300 ? 'bg-rose-100 text-rose-600 animate-pulse' : 'bg-slate-100 text-slate-500'}`}>
-                                                <Icon name="Timer" className="w-3.5 h-3.5" /> {formatTime(timeLeft)}
-                                            </div>
-                                            <Icon name={isNavOpen ? "ChevronUp" : "ChevronDown"} className="text-slate-300" />
-                                        </div>
+                                    <button onClick={() => setIsNavOpen(!isNavOpen)} className="w-full flex justify-between items-center px-2 py-1 hover:bg-slate-50 rounded-xl transition-colors">
+                                        <div className="flex items-center gap-3"><div className="p-2 bg-blue-50 text-blue-600 rounded-lg"><Icon name="List" className="w-5 h-5" /></div><div className="text-left"><div className="font-black text-slate-700 text-sm">模擬考：{mockStage === 'TF' ? '是非題' : '選擇題'}</div><div className="text-[10px] text-slate-400 font-bold uppercase">已完成 {Object.keys(userAnswers).filter(k => (mockStage === 'TF' ? k < 50 : k >= 50)).length} / 50 題</div></div></div>
+                                        <div className="flex items-center gap-4"><div className={`flex items-center gap-2 px-3 py-1.5 rounded-full font-mono font-bold text-xs shadow-inner ${timeLeft < 300 ? 'bg-rose-100 text-rose-600 animate-pulse' : 'bg-slate-100 text-slate-500'}`}><Icon name="Timer" className="w-3.5 h-3.5" /> {formatTime(timeLeft)}</div><Icon name={isNavOpen ? "ChevronUp" : "ChevronDown"} className="text-slate-300" /></div>
                                     </button>
-                                    
                                     {isNavOpen && (
                                         <div className="mt-6 pt-6 border-t border-slate-50 grid grid-cols-5 sm:grid-cols-10 gap-2 animate-in fade-in slide-in-from-top-2 duration-300">
                                             {Array.from({length: 50}, (_, i) => {
                                                 const key = i + ansKeyBase;
                                                 const isAnswered = !!userAnswers[key];
                                                 const isCurrent = currentIndex === i;
-                                                return (
-                                                    <button 
-                                                        key={i} 
-                                                        onClick={() => { setCurrentIndex(i); setIsNavOpen(false); }}
-                                                        className={`h-10 rounded-xl text-sm font-black transition-all border-2 
-                                                            ${isCurrent ? 'border-blue-600 ring-2 ring-blue-50 scale-105 z-10' : 'border-transparent'} 
-                                                            ${isAnswered ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
-                                                    >
-                                                        {i + 1}
-                                                    </button>
-                                                );
+                                                return (<button key={i} onClick={() => { setCurrentIndex(i); setIsNavOpen(false); }} className={`h-10 rounded-xl text-sm font-black transition-all border-2 ${isCurrent ? 'border-blue-600 ring-2 ring-blue-50 scale-105 z-10' : 'border-transparent'} ${isAnswered ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}>{i + 1}</button>);
                                             })}
                                         </div>
                                     )}
                                 </div>
                             )}
 
-                            <div className="flex justify-between items-center mb-6">
-                                <div className="flex gap-2">
-                                    <span className="px-4 py-2 bg-blue-600 text-white rounded-full font-bold shadow-sm text-sm">
-                                        第 {currentIndex + 1} 題
-                                    </span>
-                                    {quizMode !== 'MOCK' && (
-                                        <span className="px-4 py-2 bg-white text-slate-500 border rounded-full font-bold text-sm uppercase tracking-widest">
-                                            {quizMode.includes('ALL') ? '全題庫練習' : '隨堂練習'}
-                                        </span>
-                                    )}
-                                </div>
+                            <div className="flex justify-between items-center mb-6 px-4">
+                                <div className="flex gap-2"><span className="px-4 py-2 bg-blue-600 text-white rounded-full font-bold shadow-sm text-sm">第 {currentIndex + 1} 題</span>{quizMode !== 'MOCK' && (<span className="px-4 py-2 bg-white text-slate-500 border rounded-full font-bold text-sm uppercase tracking-widest flex items-center gap-2">{quizMode.includes('ALL') ? <><Icon name="Layers" className="w-3 h-3" /> 全題庫循序練習</> : '隨堂練習'}</span>)}</div>
+                                {quizMode.includes('ALL') && (<div className="flex items-center gap-2 text-xs font-bold text-blue-500 bg-blue-50 px-3 py-1 rounded-full"><Icon name="Bookmark" className="w-3 h-3" /> 已儲存進度</div>)}
                             </div>
 
-                            <div className="bg-white rounded-[2rem] shadow-xl overflow-hidden border border-slate-100">
-                                <div className="p-8 md:p-12">
-                                    <h2 className="text-2xl font-bold text-slate-800 mb-10 leading-relaxed min-h-[4rem]">{q.actualTitle}</h2>
-                                    <div className="space-y-4">
-                                        {options.map(opt => {
-                                            const isChecked = isMC ? (quizMode === 'MOCK' ? (userAns?.split(',').includes(opt.key)) : currentSelection.includes(opt.key)) : userAns === opt.key;
-                                            const isPartOfCorrect = q.actualAnswer.split(',').map(s=>normalizeTF(s.trim())).includes(normalizeTF(opt.key));
-                                            let style = "w-full p-5 rounded-2xl border-2 text-left transition-all flex items-center gap-5 ";
-                                            if (!showFeedback) style += isChecked ? "border-blue-600 bg-blue-50 text-blue-700 shadow-sm" : "border-slate-50 hover:border-slate-200 text-slate-600";
-                                            else {
-                                                if (isPartOfCorrect) style += "border-emerald-500 bg-emerald-50 text-emerald-800 shadow-inner";
-                                                else if (isChecked) style += "border-rose-500 bg-rose-50 text-rose-800 shadow-inner";
-                                                else style += "border-slate-50 opacity-40";
-                                            }
-                                            return (
-                                                <button key={opt.key} onClick={() => handleOptionClick(opt.key)} disabled={showFeedback} className={style}>
-                                                    {q.type !== 'TF' && <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black ${isChecked ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}`}>{opt.key}</div>}
-                                                    {q.type === 'TF' && isChecked && <Icon name={showFeedback && !isPartOfCorrect ? "XCircle" : "CheckCircle"} className={`w-8 h-8 shrink-0 ${showFeedback ? (isPartOfCorrect ? 'text-emerald-600' : 'text-rose-600') : 'text-blue-600'}`} />}
-                                                    <span className="text-lg font-bold flex-1">{opt.val}</span>
-                                                </button>
-                                            );
-                                        })}
+                            <div className="flex items-center justify-center gap-2 md:gap-6">
+                                {/* 左側導覽箭頭 */}
+                                <button 
+                                    onClick={moveToPrev} 
+                                    disabled={currentIndex === 0}
+                                    className="p-3 md:p-6 text-slate-400 hover:text-slate-700 hover:bg-white/50 rounded-full transition-all disabled:opacity-0 disabled:pointer-events-none"
+                                >
+                                    <Icon name="NavLeft" className="w-10 h-10 md:w-16 md:h-16" />
+                                </button>
+
+                                <div className="bg-white rounded-[2rem] shadow-xl overflow-hidden border border-slate-100 flex-1">
+                                    <div className="p-8 md:p-12">
+                                        <h2 className="text-2xl font-bold text-slate-800 mb-10 leading-relaxed min-h-[4rem]">{q.actualTitle}</h2>
+                                        <div className="space-y-4">
+                                            {options.map(opt => {
+                                                const isChecked = isMC ? (quizMode === 'MOCK' ? (userAns?.split(',').includes(opt.key)) : currentSelection.includes(opt.key)) : userAns === opt.key;
+                                                const isPartOfCorrect = q.actualAnswer.split(',').map(s=>normalizeTF(s.trim())).includes(normalizeTF(opt.key));
+                                                let style = "w-full p-5 rounded-2xl border-2 text-left transition-all flex items-center gap-5 ";
+                                                if (!showFeedback) style += isChecked ? "border-blue-600 bg-blue-50 text-blue-700 shadow-sm" : "border-slate-50 hover:border-slate-200 text-slate-600";
+                                                else {
+                                                    if (isPartOfCorrect) style += "border-emerald-500 bg-emerald-50 text-emerald-800 shadow-inner";
+                                                    else if (isChecked) style += "border-rose-500 bg-rose-50 text-rose-800 shadow-inner";
+                                                    else style += "border-slate-50 opacity-40";
+                                                }
+                                                return (<button key={opt.key} onClick={() => handleOptionClick(opt.key)} disabled={showFeedback} className={style}>{q.type !== 'TF' && <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black ${isChecked ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}`}>{opt.key}</div>}{q.type === 'TF' && isChecked && <Icon name={showFeedback && !isPartOfCorrect ? "XCircle" : "CheckCircle"} className={`w-8 h-8 shrink-0 ${showFeedback ? (isPartOfCorrect ? 'text-emerald-600' : 'text-rose-600') : 'text-blue-600'}`} />}<span className="text-lg font-bold flex-1">{opt.val}</span></button>);
+                                            })}
+                                        </div>
+                                        <div className="mt-10 flex flex-col gap-4">
+                                            {isMC && !showFeedback && (<button onClick={handleMultiSubmit} className="w-full py-5 bg-blue-600 text-white rounded-2xl font-black text-xl shadow-lg shadow-blue-100">{quizMode === 'MOCK' ? '確認選擇' : '送出答案'}</button>)}
+                                            {!showFeedback && !isMC && quizMode !== 'MOCK' && (<button onClick={moveToNext} className="text-slate-400 text-sm font-bold underline underline-offset-8 block mx-auto py-4">跳過此題</button>)}
+                                            {quizMode === 'MOCK' && currentIndex === 49 && (
+                                                <button onClick={moveToNext} className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black text-xl shadow-xl">{mockStage === 'TF' ? '下一步：進入選擇題' : '點此完成交卷'}</button>
+                                            )}
+                                        </div>
                                     </div>
-                                    <div className="mt-10 flex flex-col gap-4">
-                                        {isMC && !showFeedback && (
-                                            <button onClick={handleMultiSubmit} className="w-full py-5 bg-blue-600 text-white rounded-2xl font-black text-xl shadow-lg shadow-blue-100">
-                                                {quizMode === 'MOCK' ? '確認選擇' : '送出答案'}
-                                            </button>
-                                        )}
-                                        {quizMode === 'MOCK' ? (
-                                            <div className="flex justify-between items-center pt-6 border-t mt-6">
-                                                <button onClick={moveToPrev} disabled={currentIndex === 0} className="flex items-center gap-2 px-6 py-3 font-black text-slate-400 hover:text-slate-600 disabled:opacity-20 transition-all"><Icon name="ChevronLeft" /> 上一題</button>
-                                                <button onClick={moveToNext} className="flex items-center gap-2 px-8 py-4 bg-slate-900 text-white rounded-2xl font-black shadow-lg hover:bg-black transition-all">
-                                                    {currentIndex === 49 ? (mockStage === 'TF' ? '進入選擇題' : '點此交卷') : '下一題'}
-                                                    <Icon name="ChevronRight" />
-                                                </button>
-                                            </div>
-                                        ) : !showFeedback && !isMC && (
-                                            <button onClick={moveToNext} className="text-slate-400 text-sm font-bold underline underline-offset-8 block mx-auto py-4">跳過此題</button>
-                                        )}
-                                    </div>
+                                    {showFeedback && (
+                                        <div className="bg-slate-50 p-8 md:p-12 border-t-2 border-slate-100">
+                                            <div className={`flex items-center gap-3 p-5 rounded-2xl font-black text-xl mb-8 ${isCorrect ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}><Icon name={isCorrect ? "CheckCircle" : "XCircle"} /> {isCorrect ? "答對了！" : "答錯了..."}</div>
+                                            <div className="grid grid-cols-2 gap-4 mb-8"><div className="bg-white p-5 rounded-2xl border text-center shadow-sm"><div className="text-xs font-bold text-slate-400 mb-1 uppercase tracking-widest">您的選擇</div><div className="font-black text-xl">{formatDisplayLabel(userAns, q.type)}</div></div><div className="bg-white p-5 rounded-2xl border text-center shadow-sm"><div className="text-xs font-bold text-slate-400 mb-1 uppercase tracking-widest">正確答案</div><div className="font-black text-xl text-blue-600">{formatDisplayLabel(q.actualAnswer, q.type)}</div></div></div>
+                                            <div className="bg-white p-6 rounded-2xl border mb-10 text-slate-700 leading-relaxed shadow-sm"><div className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-widest flex items-center gap-2"><div className="w-1.5 h-3 bg-blue-500 rounded-full"></div> 解析說明</div><div className="font-medium text-lg">{q.actualExplanation || "暫無詳細說明。"}</div></div>
+                                            <button onClick={moveToNext} className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black text-xl shadow-xl flex items-center justify-center gap-2">下一題 <Icon name="ArrowRight" /></button>
+                                        </div>
+                                    )}
                                 </div>
-                                {showFeedback && (
-                                    <div className="bg-slate-50 p-8 md:p-12 border-t-2 border-slate-100">
-                                        <div className={`flex items-center gap-3 p-5 rounded-2xl font-black text-xl mb-8 ${checkAnswer(userAns, q.actualAnswer) ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                                            <Icon name={checkAnswer(userAns, q.actualAnswer) ? "CheckCircle" : "XCircle"} /> {checkAnswer(userAns, q.actualAnswer) ? "答對了！" : "答錯了..."}
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-4 mb-8">
-                                            <div className="bg-white p-5 rounded-2xl border text-center shadow-sm"><div className="text-xs font-bold text-slate-400 mb-1 uppercase tracking-widest">您的選擇</div><div className="font-black text-xl">{formatDisplayLabel(userAns, q.type)}</div></div>
-                                            <div className="bg-white p-5 rounded-2xl border text-center shadow-sm"><div className="text-xs font-bold text-slate-400 mb-1 uppercase tracking-widest">正確答案</div><div className="font-black text-xl text-blue-600">{formatDisplayLabel(q.actualAnswer, q.type)}</div></div>
-                                        </div>
-                                        <div className="bg-white p-6 rounded-2xl border mb-10 text-slate-700 leading-relaxed shadow-sm">
-                                            <div className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-widest flex items-center gap-2"><div className="w-1.5 h-3 bg-blue-500 rounded-full"></div> 解析說明</div>
-                                            <div className="font-medium text-lg">{q.actualExplanation || "暫無詳細說明。"}</div>
-                                        </div>
-                                        <button onClick={moveToNext} className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black text-xl shadow-xl flex items-center justify-center gap-2">下一題 <Icon name="ArrowRight" /></button>
-                                    </div>
-                                )}
+
+                                {/* 右側導覽箭頭 */}
+                                <button 
+                                    onClick={moveToNext} 
+                                    disabled={currentIndex === questions.length - 1 && quizMode !== 'MOCK'}
+                                    className="p-3 md:p-6 text-slate-400 hover:text-slate-700 hover:bg-white/50 rounded-full transition-all disabled:opacity-0 disabled:pointer-events-none"
+                                >
+                                    <Icon name="NavRight" className="w-10 h-10 md:w-16 md:h-16" />
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -535,41 +481,8 @@
                 let tfS = 0, mcS = 0, total = 0, totalQuestions = 1;
                 if (quizMode === 'MOCK') { tfS = getScore(mockFullData.current.tf, 0); mcS = getScore(mockFullData.current.mc, 50); total = tfS + mcS; totalQuestions = 100; }
                 else { total = getScore(questions, 0); totalQuestions = questions.length || 1; }
-
                 return (
-                    <div className="min-h-screen flex items-center justify-center p-4">
-                        <div className="max-w-2xl w-full bg-white rounded-[3rem] shadow-2xl p-10 md:p-16 text-center border border-slate-100">
-                            <h1 className="text-4xl font-black mb-10 text-slate-800 uppercase tracking-tighter">測驗結算</h1>
-                            {quizMode === 'MOCK' ? (
-                                <div className="space-y-6 mb-12">
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 text-center shadow-inner">
-                                            <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">是非得分</div>
-                                            <div className="text-3xl font-black text-slate-700">{tfS} <span className="text-sm text-slate-300">/ 50</span></div>
-                                        </div>
-                                        <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 text-center shadow-inner">
-                                            <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">選擇得分</div>
-                                            <div className="text-3xl font-black text-slate-700">{mcS} <span className="text-sm text-slate-300">/ 50</span></div>
-                                        </div>
-                                    </div>
-                                    <div className="bg-blue-600 p-10 rounded-[2.5rem] text-white shadow-2xl shadow-blue-100">
-                                        <div className="text-sm font-bold opacity-70 mb-2 uppercase tracking-[0.2em]">測驗總成績 (100)</div>
-                                        <div className="text-7xl font-black">{total}</div>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="bg-slate-50 p-10 rounded-[2.5rem] mb-12 border shadow-inner">
-                                    <div className="text-sm text-slate-400 font-bold mb-2 uppercase tracking-widest">測驗正確率</div>
-                                    <div className="text-6xl font-black text-blue-600">{Math.round((total/totalQuestions)*100)}%</div>
-                                    <div className="text-slate-400 mt-4 font-bold">答對 {total} 題 / 共 {totalQuestions} 題</div>
-                                </div>
-                            )}
-                            <div className="flex gap-4">
-                                <button onClick={() => setAppState('INIT')} className="flex-1 py-5 bg-slate-900 text-white rounded-3xl font-black text-xl shadow-xl">返回首頁</button>
-                                <button onClick={() => fetchBank(quizMode)} className="flex-1 py-5 bg-slate-100 text-slate-600 rounded-3xl font-black text-xl hover:bg-slate-200 transition-all">重新測試</button>
-                            </div>
-                        </div>
-                    </div>
+                    <div className="min-h-screen flex items-center justify-center p-4"><div className="max-w-2xl w-full bg-white rounded-[3rem] shadow-2xl p-10 md:p-16 text-center border border-slate-100"><h1 className="text-4xl font-black mb-10 text-slate-800 uppercase tracking-tighter">測驗結算</h1><div className="bg-slate-50 p-10 rounded-[2.5rem] mb-12 border shadow-inner"><div className="text-sm text-slate-400 font-bold mb-2 uppercase tracking-widest">測驗正確率</div><div className="text-6xl font-black text-blue-600">{Math.round((total/totalQuestions)*100)}%</div><div className="text-slate-400 mt-4 font-bold">答對 {total} 題 / 共 {totalQuestions} 題</div></div><div className="flex gap-4"><button onClick={() => setAppState('INIT')} className="flex-1 py-5 bg-slate-900 text-white rounded-3xl font-black text-xl shadow-xl">返回首頁</button><button onClick={() => fetchBank(quizMode)} className="flex-1 py-5 bg-slate-100 text-slate-600 rounded-3xl font-black text-xl hover:bg-slate-200 transition-all">重新測試</button></div></div></div>
                 );
             }
             return null;
