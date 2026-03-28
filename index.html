@@ -74,6 +74,7 @@
 
             const [timeLeft, setTimeLeft] = useState(0);
             const timerRef = useRef(null);
+            const mockFullData = useRef({ tf: [], mc: [] });
 
             useEffect(() => {
                 onAuthStateChanged(auth, (u) => {
@@ -103,6 +104,17 @@
                 }
                 return () => clearInterval(timerRef.current);
             }, [appState, quizMode, timeLeft]);
+
+            useEffect(() => {
+                if (appState === 'RESULT' && quizMode === 'MOCK' && user) {
+                    mockFullData.current.tf.forEach((q, i) => {
+                        if (userAnswers[i]) syncWrongQuestion(q, checkAnswer(userAnswers[i], q.actualAnswer));
+                    });
+                    mockFullData.current.mc.forEach((q, i) => {
+                        if (userAnswers[i + 50]) syncWrongQuestion(q, checkAnswer(userAnswers[i + 50], q.actualAnswer));
+                    });
+                }
+            }, [appState]);
 
             const handleTimeUp = () => {
                 if (mockStage === 'TF') startMockPhase('MC');
@@ -150,11 +162,10 @@
                 if (row.length > 0 || field !== '') { row.push(field.trim()); result.push(row); }
                 const headers = result[0]?.map(h => h.trim()) || [];
                 return result.slice(1).map(r => {
-                    const obj = {};
+                    const obj = { _rawRow: r };
                     headers.forEach((h, i) => { if (h) obj[h] = r[i] || ""; });
                     obj.actualTitle = obj['題目'] || "";
                     obj.actualAnswer = obj['正解'] || obj['答案'] || "";
-                    obj.actualExplanation = obj['說明'] || obj['解析'] || "";
                     obj.rawOptions = obj['選項'] || "";
                     return obj;
                 });
@@ -162,12 +173,10 @@
 
             const normalizeTF = (val) => {
                 const v = val?.toString().toUpperCase().trim();
-                if (['O', 'A', '1', 'T', '正確', 'TRUE', '○', '✅', '是'].includes(v)) return 'O';
-                if (['X', 'B', '2', 'F', '錯誤', 'FALSE', '✕', '❌', '否'].includes(v)) return 'X';
+                if (['O', 'A', '1', 'T', '正確', 'TRUE', '○', '◯', '✅', '是'].includes(v)) return 'O';
+                if (['X', 'B', '2', 'F', '錯誤', 'FALSE', '✕', '✖', '❌', '否'].includes(v)) return 'X';
                 return v;
             };
-
-            const mockFullData = useRef({ tf: [], mc: [] });
 
             const fetchBank = async (mode) => {
                 setAppState('LOADING');
@@ -176,8 +185,20 @@
                         fetch(TF_SHEET_URL).then(r => r.text()),
                         fetch(MC_SHEET_URL).then(r => r.text())
                     ]);
-                    const tfData = parseCSV(tfRes).map(q => ({ ...q, type: 'TF' }));
-                    const mcData = parseCSV(mcRes).map(q => ({ ...q, type: 'MC' }));
+                    
+                    // 是非題讀取 D 欄 (index 3)
+                    const tfData = parseCSV(tfRes).map(q => ({ 
+                        ...q, 
+                        type: 'TF',
+                        actualExplanation: q._rawRow[3] || ""
+                    }));
+                    
+                    // 選擇題讀取 E 欄 (index 4)
+                    const mcData = parseCSV(mcRes).map(q => ({ 
+                        ...q, 
+                        type: 'MC',
+                        actualExplanation: q._rawRow[4] || ""
+                    }));
 
                     if (mode === 'MOCK') {
                         mockFullData.current = {
@@ -250,6 +271,7 @@
             };
 
             const moveToNext = () => {
+                setShowFeedback(false);
                 if (currentIndex < questions.length - 1) {
                     setCurrentIndex(currentIndex + 1); setCurrentSelection([]);
                 } else {
@@ -262,6 +284,15 @@
                 const m = Math.floor(seconds / 60);
                 const s = seconds % 60;
                 return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+            };
+
+            const formatDisplayLabel = (val, type) => {
+                if (!val) return "未填答";
+                if (type === 'TF') {
+                    const n = normalizeTF(val);
+                    return n === 'O' ? '正確' : (n === 'X' ? '錯誤' : val);
+                }
+                return val;
             };
 
             if (appState === 'INIT') return (
@@ -321,6 +352,7 @@
                 const isMC = q.actualTitle.includes("(多選)") || q.actualAnswer.includes(",");
                 const ansKey = currentIndex + (mockStage === 'MC' ? 50 : 0);
                 const userAns = userAnswers[ansKey];
+                const isCorrect = checkAnswer(userAns, q.actualAnswer);
                 const options = q.type === 'TF' ? [{key:'O', val:'正確 (O)'}, {key:'X', val:'錯誤 (X)'}] : (() => {
                     const matches = [...q.rawOptions.matchAll(/([A-E])[.、\s]+(.*?)(?=\s*[A-E][.、\s]|$)/g)];
                     return matches.length > 0 ? matches.map(m => ({ key: m[1], val: m[2].trim() })) : q.rawOptions.split(/\s+/).filter(s=>s).map((s,i)=>({key:String.fromCharCode(65+i), val:s}));
@@ -331,7 +363,7 @@
                         <div className="max-w-3xl w-full">
                             <div className="flex justify-between items-center mb-6">
                                 <div className="flex gap-2">
-                                    <span className="px-4 py-2 bg-blue-600 text-white rounded-full font-bold shadow-sm text-sm">第 {currentIndex + 1} / 50 題</span>
+                                    <span className="px-4 py-2 bg-blue-600 text-white rounded-full font-bold shadow-sm text-sm">第 {currentIndex + 1} / {questions.length} 題</span>
                                     <span className="px-4 py-2 bg-white text-slate-500 border rounded-full font-bold text-sm">
                                         {quizMode === 'MOCK' ? (mockStage === 'TF' ? '模擬考：是非' : '模擬考：選擇') : '練習模式'}
                                     </span>
@@ -371,14 +403,31 @@
                                 </div>
                                 {showFeedback && (
                                     <div className="bg-slate-50 p-8 md:p-12 border-t-2">
-                                        <div className={`flex items-center gap-3 p-5 rounded-2xl font-black text-xl mb-8 ${checkAnswer(userAns, q.actualAnswer) ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                                            <Icon name={checkAnswer(userAns, q.actualAnswer) ? "CheckCircle" : "XCircle"} /> {checkAnswer(userAns, q.actualAnswer) ? "答對了！" : "答錯了..."}
+                                        <div className={`flex items-center gap-3 p-5 rounded-2xl font-black text-xl mb-8 ${isCorrect ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                                            <Icon name={isCorrect ? "CheckCircle" : "XCircle"} /> {isCorrect ? "答對了！" : "答錯了..."}
                                         </div>
                                         <div className="grid grid-cols-2 gap-4 mb-8">
-                                            <div className="bg-white p-5 rounded-2xl border text-center"><div className="text-xs font-bold text-slate-400 mb-1">您的選擇</div><div className="font-black text-xl">{normalizeTF(userAns)==='O'?'正確':(normalizeTF(userAns)==='X'?'錯誤':userAns)}</div></div>
-                                            <div className="bg-white p-5 rounded-2xl border text-center"><div className="text-xs font-bold text-slate-400 mb-1">正確答案</div><div className="font-black text-xl text-blue-600">{normalizeTF(q.actualAnswer)==='O'?'正確':(normalizeTF(q.actualAnswer)==='X'?'錯誤':q.actualAnswer)}</div></div>
+                                            <div className="bg-white p-5 rounded-2xl border text-center">
+                                                <div className="text-xs font-bold text-slate-400 mb-1 uppercase tracking-widest">您的選擇</div>
+                                                <div className={`font-black text-xl ${isCorrect ? 'text-emerald-600' : 'text-rose-600'}`}>{formatDisplayLabel(userAns, q.type)}</div>
+                                            </div>
+                                            <div className="bg-white p-5 rounded-2xl border text-center">
+                                                <div className="text-xs font-bold text-slate-400 mb-1 uppercase tracking-widest">正確答案</div>
+                                                <div className="font-black text-xl text-blue-600">{formatDisplayLabel(q.actualAnswer, q.type)}</div>
+                                            </div>
                                         </div>
-                                        <button onClick={moveToNext} className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black text-xl shadow-xl flex items-center justify-center gap-2">下一題 <ArrowRight /></button>
+                                        
+                                        {/* 解析說明區塊 */}
+                                        <div className="bg-white p-6 rounded-2xl border mb-10 text-slate-700 leading-relaxed shadow-sm">
+                                            <div className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-widest flex items-center gap-2">
+                                                <div className="w-1 h-3 bg-blue-500 rounded-full"></div> 解析說明
+                                            </div>
+                                            <div className="font-medium text-lg">
+                                                {q.actualExplanation ? q.actualExplanation : "本題暫無詳細說明內容。"}
+                                            </div>
+                                        </div>
+
+                                        <button onClick={moveToNext} className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black text-xl shadow-xl flex items-center justify-center gap-2 hover:bg-black transition-all">下一題 <Icon name="ArrowRight" /></button>
                                     </div>
                                 )}
                             </div>
@@ -388,13 +437,23 @@
             }
 
             if (appState === 'RESULT') {
-                const getScore = (data, offset) => data.reduce((acc, q, i) => acc + (checkAnswer(userAnswers[i + offset], q.actualAnswer) ? 1 : 0), 0);
-                let tfS, mcS, total;
+                const getScore = (data, offset) => {
+                    if (!data || data.length === 0) return 0;
+                    return data.reduce((acc, q, i) => acc + (checkAnswer(userAnswers[i + offset], q.actualAnswer) ? 1 : 0), 0);
+                };
+
+                let tfS = 0, mcS = 0, total = 0, totalQuestions = 1;
                 if (quizMode === 'MOCK') {
-                    tfS = getScore(mockFullData.current.tf, 0); mcS = getScore(mockFullData.current.mc, 50); total = tfS + mcS;
-                    mockFullData.current.tf.forEach((q, i) => { if (userAnswers[i]) syncWrongQuestion(q, checkAnswer(userAnswers[i], q.actualAnswer)); });
-                    mockFullData.current.mc.forEach((q, i) => { if (userAnswers[i+50]) syncWrongQuestion(q, checkAnswer(userAnswers[i+50], q.actualAnswer)); });
-                } else total = getScore(questions, 0);
+                    tfS = getScore(mockFullData.current.tf, 0); 
+                    mcS = getScore(mockFullData.current.mc, 50); 
+                    total = tfS + mcS;
+                    totalQuestions = 100;
+                } else {
+                    total = getScore(questions, 0);
+                    totalQuestions = questions.length || 1;
+                }
+
+                const percentage = Math.round((total / totalQuestions) * 100);
 
                 return (
                     <div className="min-h-screen flex items-center justify-center p-4">
@@ -406,25 +465,27 @@
                                         <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 text-sm font-bold text-slate-400 uppercase tracking-widest">是非: {tfS} / 50</div>
                                         <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 text-sm font-bold text-slate-400 uppercase tracking-widest">選擇: {mcS} / 50</div>
                                     </div>
-                                    <div className="bg-blue-600 p-10 rounded-[2.5rem] text-white shadow-xl">
+                                    <div className="bg-blue-600 p-10 rounded-[2.5rem] text-white shadow-xl shadow-blue-100">
                                         <div className="text-sm font-bold opacity-80 mb-2 uppercase tracking-widest">總分 (100)</div>
                                         <div className="text-6xl font-black">{total}</div>
                                     </div>
                                 </div>
                             ) : (
-                                <div className="bg-slate-50 p-10 rounded-3xl mb-12">
-                                    <div className="text-sm text-slate-400 font-bold mb-2 uppercase tracking-widest">得分: {total} / {questions.length}</div>
-                                    <div className="text-5xl font-black text-blue-600">{Math.round((total/questions.length)*100)}%</div>
+                                <div className="bg-slate-50 p-10 rounded-3xl mb-12 text-center">
+                                    <div className="text-sm text-slate-400 font-bold mb-2 uppercase tracking-widest">得分: {total} / {totalQuestions}</div>
+                                    <div className="text-6xl font-black text-blue-600">{percentage}%</div>
                                 </div>
                             )}
                             <div className="flex gap-4">
-                                <button onClick={() => setAppState('INIT')} className="flex-1 py-5 bg-slate-900 text-white rounded-2xl font-bold shadow-xl">首頁</button>
-                                <button onClick={() => fetchBank(quizMode)} className="flex-1 py-5 bg-slate-100 text-slate-600 rounded-2xl font-bold">重測</button>
+                                <button onClick={() => setAppState('INIT')} className="flex-1 py-5 bg-slate-900 text-white rounded-2xl font-bold shadow-xl hover:bg-black transition-all">首頁</button>
+                                <button onClick={() => fetchBank(quizMode)} className="flex-1 py-5 bg-slate-100 text-slate-600 rounded-2xl font-bold hover:bg-slate-200 transition-all">重測</button>
                             </div>
                         </div>
                     </div>
                 );
             }
+
+            return null;
         };
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
