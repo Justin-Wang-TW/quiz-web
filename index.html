@@ -18,9 +18,9 @@
     <script type="text/babel" data-type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+        import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot, getDocs, writeBatch } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
 
-        // --- Firebase 配置 (使用您提供的設定值) ---
+        // --- Firebase 配置 ---
         const firebaseConfig = {
           apiKey: "AIzaSyCS9aa4aAL7Qw2rPQdnfx-zYgA575YllVw", 
           authDomain: "quiz-db627.firebaseapp.com",
@@ -42,24 +42,15 @@
         const { useState, useEffect, useMemo, useRef } = React;
 
         // SVG 圖示組件
-        const Icon = ({ name, className = "w-6 h-6" }) => {
+        const Icon = ({ name, className = "w-6 h-6 shrink-0" }) => {
             const icons = {
                 BookOpen: <path d="M2 3h6a4 4 0 0 1 4 4v14a4 4 0 0 0-4-4H2zM22 3h-6a4 4 0 0 0-4 4v14a4 4 0 0 1 4-4h6z" />,
-                CheckCircle: (
-                    <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                        <polyline points="22 4 12 14.01 9 11.01" />
-                    </g>
-                ),
-                XCircle: (
-                    <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="12" r="10" />
-                        <line x1="15" y1="9" x2="9" y2="15" />
-                        <line x1="9" y1="9" x2="15" y2="15" />
-                    </g>
-                ),
+                CheckCircle: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></g>,
+                XCircle: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" /></g>,
                 Timer: <g fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></g>,
-                Database: <ellipse cx="12" cy="5" rx="9" ry="3" />
+                Database: <ellipse cx="12" cy="5" rx="9" ry="3" />,
+                Trash: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></g>,
+                ArrowRight: <polyline points="12 5 19 12 12 19" />
             };
             return (
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
@@ -70,18 +61,17 @@
 
         const App = () => {
             const [user, setUser] = useState(null);
-            const [appState, setAppState] = useState('INIT'); // INIT, LOADING, QUIZ, RESULT
+            const [appState, setAppState] = useState('INIT');
             const [quizMode, setQuizMode] = useState(null); 
-            const [mockStage, setMockStage] = useState(null); // 'TF' or 'MC'
-            
+            const [mockStage, setMockStage] = useState(null); 
             const [questions, setQuestions] = useState([]);
             const [currentIndex, setCurrentIndex] = useState(0);
             const [userAnswers, setUserAnswers] = useState({});
             const [currentSelection, setCurrentSelection] = useState([]);
             const [showFeedback, setShowFeedback] = useState(false);
             const [wrongBank, setWrongBank] = useState([]);
+            const [isClearing, setIsClearing] = useState(false);
 
-            // 計時器狀態
             const [timeLeft, setTimeLeft] = useState(0);
             const timerRef = useRef(null);
 
@@ -98,7 +88,6 @@
                 return onSnapshot(wrongRef, (s) => setWrongBank(s.docs.map(d => d.data())));
             }, [user]);
 
-            // 計時器邏輯
             useEffect(() => {
                 if (appState === 'QUIZ' && quizMode === 'MOCK' && timeLeft > 0) {
                     timerRef.current = setInterval(() => {
@@ -113,15 +102,28 @@
                     }, 1000);
                 }
                 return () => clearInterval(timerRef.current);
-            }, [appState, quizMode, mockStage, timeLeft]);
+            }, [appState, quizMode, timeLeft]);
 
             const handleTimeUp = () => {
-                if (mockStage === 'TF') {
-                    // 是非題時間到，自動切換至選擇題
-                    startMockPhase('MC');
-                } else {
-                    // 選擇題時間到，直接結算
-                    setAppState('RESULT');
+                if (mockStage === 'TF') startMockPhase('MC');
+                else setAppState('RESULT');
+            };
+
+            const handleClearWrongBank = async () => {
+                if (!window.confirm("確定要清空所有的錯題紀錄嗎？此動作無法復原。")) return;
+                setIsClearing(true);
+                try {
+                    const wrongRef = collection(db, 'artifacts', appId, 'users', user.uid, 'wrongQuestions');
+                    const snapshot = await getDocs(wrongRef);
+                    const batch = writeBatch(db);
+                    snapshot.docs.forEach((doc) => {
+                        batch.delete(doc.ref);
+                    });
+                    await batch.commit();
+                } catch (error) {
+                    console.error("Error clearing wrong questions:", error);
+                } finally {
+                    setIsClearing(false);
                 }
             };
 
@@ -160,12 +162,11 @@
 
             const normalizeTF = (val) => {
                 const v = val?.toString().toUpperCase().trim();
-                if (['O', 'A', '1', 'T', '正確', 'TRUE', '○', '◯', '✅', '是'].includes(v)) return 'O';
-                if (['X', 'B', '2', 'F', '錯誤', 'FALSE', '✕', '✖', '❌', '否'].includes(v)) return 'X';
+                if (['O', 'A', '1', 'T', '正確', 'TRUE', '○', '✅', '是'].includes(v)) return 'O';
+                if (['X', 'B', '2', 'F', '錯誤', 'FALSE', '✕', '❌', '否'].includes(v)) return 'X';
                 return v;
             };
 
-            // 用於存儲模擬考的所有題目
             const mockFullData = useRef({ tf: [], mc: [] });
 
             const fetchBank = async (mode) => {
@@ -194,7 +195,7 @@
                         setQuestions(selected);
                         setCurrentIndex(0); setUserAnswers({}); setCurrentSelection([]); setShowFeedback(false);
                         setAppState('QUIZ'); setQuizMode(mode);
-                        setTimeLeft(0); // 練習模式不計時
+                        setTimeLeft(0);
                     }
                 } catch (e) { setAppState('INIT'); }
             };
@@ -202,11 +203,8 @@
             const startMockPhase = (phase) => {
                 setMockStage(phase);
                 setQuestions(phase === 'TF' ? mockFullData.current.tf : mockFullData.current.mc);
-                setCurrentIndex(0);
-                setCurrentSelection([]);
-                setShowFeedback(false);
-                setTimeLeft(50 * 60); // 50 分鐘
-                setAppState('QUIZ');
+                setCurrentIndex(0); setCurrentSelection([]); setShowFeedback(false);
+                setTimeLeft(50 * 60); setAppState('QUIZ');
             };
 
             const syncWrongQuestion = async (q, isCorrect) => {
@@ -231,13 +229,9 @@
                     setCurrentSelection(p => p.includes(key) ? p.filter(k => k !== key) : [...p, key]);
                 } else {
                     const ansKey = currentIndex + (mockStage === 'MC' ? 50 : 0);
-                    const newUserAnswers = {...userAnswers, [ansKey]: key};
-                    setUserAnswers(newUserAnswers);
-                    
-                    if (quizMode === 'MOCK') {
-                        // 模擬考不顯示即時解析，直接跳下一題
-                        moveToNext();
-                    } else {
+                    setUserAnswers({...userAnswers, [ansKey]: key});
+                    if (quizMode === 'MOCK') moveToNext();
+                    else {
                         setShowFeedback(true);
                         syncWrongQuestion(q, checkAnswer(key, q.actualAnswer));
                     }
@@ -247,12 +241,9 @@
             const handleMultiSubmit = () => {
                 const finalAns = [...currentSelection].sort().join(',');
                 const ansKey = currentIndex + (mockStage === 'MC' ? 50 : 0);
-                const newUserAnswers = {...userAnswers, [ansKey]: finalAns};
-                setUserAnswers(newUserAnswers);
-                
-                if (quizMode === 'MOCK') {
-                    moveToNext();
-                } else {
+                setUserAnswers({...userAnswers, [ansKey]: finalAns});
+                if (quizMode === 'MOCK') moveToNext();
+                else {
                     setShowFeedback(true);
                     syncWrongQuestion(questions[currentIndex], checkAnswer(finalAns, questions[currentIndex].actualAnswer));
                 }
@@ -260,15 +251,10 @@
 
             const moveToNext = () => {
                 if (currentIndex < questions.length - 1) {
-                    setCurrentIndex(currentIndex + 1);
-                    setCurrentSelection([]);
+                    setCurrentIndex(currentIndex + 1); setCurrentSelection([]);
                 } else {
-                    // 當前階段結束
-                    if (quizMode === 'MOCK' && mockStage === 'TF') {
-                        startMockPhase('MC');
-                    } else {
-                        setAppState('RESULT');
-                    }
+                    if (quizMode === 'MOCK' && mockStage === 'TF') startMockPhase('MC');
+                    else setAppState('RESULT');
                 }
             };
 
@@ -278,30 +264,45 @@
                 return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
             };
 
-            // --- 渲染 ---
             if (appState === 'INIT') return (
                 <div className="min-h-screen flex items-center justify-center p-4">
                     <div className="max-w-xl w-full bg-white rounded-[2.5rem] shadow-2xl p-10 text-center border">
                         <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-8 shadow-lg shadow-blue-100">
                             <Icon name="BookOpen" className="text-white" />
                         </div>
-                        <h1 className="text-3xl font-black text-slate-800 mb-8">人本街道概論考古題雲端練習系統</h1>
+                        <h1 className="text-3xl font-black text-slate-800 mb-8">人本街道概論考古題練習</h1>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
                             <button onClick={() => fetchBank('TF_PRACTICE')} className="p-6 border-2 border-slate-100 hover:border-blue-500 rounded-3xl transition-all">
                                 <div className="font-bold text-lg">是非題練習</div>
-                                <div className="text-xs text-slate-400">隨機 20 題 / 無限時間</div>
+                                <div className="text-xs text-slate-400">隨機 20 題</div>
                             </button>
                             <button onClick={() => fetchBank('MC_PRACTICE')} className="p-6 border-2 border-slate-100 hover:border-blue-500 rounded-3xl transition-all">
                                 <div className="font-bold text-lg">選擇題練習</div>
-                                <div className="text-xs text-slate-400">隨機 20 題 / 無限時間</div>
+                                <div className="text-xs text-slate-400">隨機 20 題</div>
                             </button>
-                            <button disabled={wrongBank.length === 0} onClick={() => fetchBank('WRONG_PRACTICE')} className={`p-6 border-2 rounded-3xl transition-all ${wrongBank.length > 0 ? 'bg-rose-50 border-rose-100 hover:border-rose-400' : 'opacity-40'}`}>
-                                <div className="font-bold">錯題強化練習</div>
-                                <div className="text-xs text-slate-400">累積 {wrongBank.length} 題</div>
-                            </button>
+                            <div className="relative group">
+                                <button 
+                                    disabled={wrongBank.length === 0} 
+                                    onClick={() => fetchBank('WRONG_PRACTICE')} 
+                                    className={`w-full h-full p-6 border-2 rounded-3xl transition-all ${wrongBank.length > 0 ? 'bg-rose-50 border-rose-100 hover:border-rose-400' : 'opacity-40'}`}
+                                >
+                                    <div className="font-bold">錯題強化練習</div>
+                                    <div className="text-xs text-slate-400">累積 {wrongBank.length} 題</div>
+                                </button>
+                                {wrongBank.length > 0 && (
+                                    <button 
+                                        onClick={handleClearWrongBank}
+                                        disabled={isClearing}
+                                        title="清空錯題本"
+                                        className="absolute top-2 right-2 p-2 text-rose-300 hover:text-rose-600 transition-colors"
+                                    >
+                                        <Icon name="Trash" className="w-5 h-5" />
+                                    </button>
+                                )}
+                            </div>
                             <button onClick={() => fetchBank('MOCK')} className="p-6 bg-slate-900 text-white rounded-3xl hover:bg-black transition-all shadow-xl">
                                 <div className="font-bold">全真模擬考題</div>
-                                <div className="text-xs text-blue-300">是非/選擇分開，各 50 題 / 50 分鐘</div>
+                                <div className="text-xs text-blue-300">各 50 題 / 50 分鐘</div>
                             </button>
                         </div>
                     </div>
@@ -332,17 +333,15 @@
                                 <div className="flex gap-2">
                                     <span className="px-4 py-2 bg-blue-600 text-white rounded-full font-bold shadow-sm text-sm">第 {currentIndex + 1} / 50 題</span>
                                     <span className="px-4 py-2 bg-white text-slate-500 border rounded-full font-bold text-sm">
-                                        {quizMode === 'MOCK' ? (mockStage === 'TF' ? '模擬考：是非階段' : '模擬考：選擇階段') : '練習模式'}
+                                        {quizMode === 'MOCK' ? (mockStage === 'TF' ? '模擬考：是非' : '模擬考：選擇') : '練習模式'}
                                     </span>
                                 </div>
                                 {quizMode === 'MOCK' && (
                                     <div className={`flex items-center gap-2 px-4 py-2 rounded-full font-mono font-bold shadow-inner ${timeLeft < 300 ? 'bg-rose-100 text-rose-600 animate-pulse' : 'bg-slate-100 text-slate-600'}`}>
-                                        <Icon name="Timer" className="w-4 h-4" />
-                                        {formatTime(timeLeft)}
+                                        <Icon name="Timer" className="w-4 h-4" /> {formatTime(timeLeft)}
                                     </div>
                                 )}
                             </div>
-                            
                             <div className="bg-white rounded-[2rem] shadow-xl overflow-hidden border border-slate-100">
                                 <div className="p-8 md:p-12">
                                     <h2 className="text-2xl font-bold text-slate-800 mb-10 leading-relaxed">{q.actualTitle}</h2>
@@ -351,19 +350,12 @@
                                             const isChecked = isMC ? currentSelection.includes(opt.key) : userAns === opt.key;
                                             const isPartOfCorrect = q.actualAnswer.split(',').map(s=>normalizeTF(s.trim())).includes(normalizeTF(opt.key));
                                             let style = "w-full p-5 rounded-2xl border-2 text-left transition-all flex items-center gap-5 ";
-                                            
-                                            if (!showFeedback) {
-                                                style += isChecked ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-50 hover:border-slate-200 text-slate-600";
-                                            } else {
-                                                if (isPartOfCorrect) style += "border-emerald-500 bg-emerald-50 text-emerald-800";
-                                                else if (isChecked) style += "border-rose-500 bg-rose-50 text-rose-800";
-                                                else style += "opacity-40";
-                                            }
-                                            
+                                            if (!showFeedback) style += isChecked ? "border-blue-600 bg-blue-50 text-blue-700 shadow-sm" : "border-slate-50 hover:border-slate-200 text-slate-600";
+                                            else style += isPartOfCorrect ? "border-emerald-500 bg-emerald-50 text-emerald-800" : (isChecked ? "border-rose-500 bg-rose-50 text-rose-800" : "opacity-40");
                                             return (
                                                 <button key={opt.key} onClick={() => handleOptionClick(opt.key)} disabled={showFeedback} className={style}>
                                                     {q.type !== 'TF' && <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black ${isChecked ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}`}>{opt.key}</div>}
-                                                    {q.type === 'TF' && isChecked && <Icon name="CheckCircle" className={showFeedback ? (isPartOfCorrect ? 'text-emerald-600' : 'text-rose-600') : 'text-blue-600'} />}
+                                                    {q.type === 'TF' && isChecked && <Icon name={showFeedback && !isPartOfCorrect ? "XCircle" : "CheckCircle"} className={`w-8 h-8 shrink-0 ${showFeedback ? (isPartOfCorrect ? 'text-emerald-600' : 'text-rose-600') : 'text-blue-600'}`} />}
                                                     <span className="text-lg font-bold flex-1">{opt.val}</span>
                                                 </button>
                                             );
@@ -371,28 +363,22 @@
                                     </div>
                                     {isMC && !showFeedback && (
                                         <div className="flex gap-4 mt-10">
-                                            <button onClick={handleMultiSubmit} disabled={currentSelection.length===0} className="flex-1 py-5 bg-blue-600 text-white rounded-2xl font-black text-xl shadow-lg">確認送出答案</button>
+                                            <button onClick={handleMultiSubmit} disabled={currentSelection.length===0} className="flex-1 py-5 bg-blue-600 text-white rounded-2xl font-black text-xl shadow-lg">確認送出</button>
                                             {quizMode === 'MOCK' && <button onClick={moveToNext} className="px-8 py-5 bg-slate-100 text-slate-400 rounded-2xl font-bold">跳過</button>}
                                         </div>
                                     )}
-                                    {quizMode === 'MOCK' && !isMC && (
-                                        <button onClick={moveToNext} className="mt-8 text-slate-400 text-sm underline underline-offset-4 block mx-auto">暫不填答，跳過此題</button>
-                                    )}
+                                    {quizMode === 'MOCK' && !isMC && <button onClick={moveToNext} className="mt-8 text-slate-400 text-sm underline underline-offset-4 block mx-auto">跳過此題</button>}
                                 </div>
-
                                 {showFeedback && (
                                     <div className="bg-slate-50 p-8 md:p-12 border-t-2">
-                                        <div className="grid grid-cols-2 gap-4 mb-8">
-                                            <div className="bg-white p-5 rounded-2xl border text-center">
-                                                <div className="text-xs font-bold text-slate-400 mb-1">您的選擇</div>
-                                                <div className="font-black text-xl">{normalizeTF(userAns)==='O'?'正確':(normalizeTF(userAns)==='X'?'錯誤':userAns)}</div>
-                                            </div>
-                                            <div className="bg-white p-5 rounded-2xl border text-center">
-                                                <div className="text-xs font-bold text-slate-400 mb-1">正確答案</div>
-                                                <div className="font-black text-xl text-blue-600">{normalizeTF(q.actualAnswer)==='O'?'正確':(normalizeTF(q.actualAnswer)==='X'?'錯誤':q.actualAnswer)}</div>
-                                            </div>
+                                        <div className={`flex items-center gap-3 p-5 rounded-2xl font-black text-xl mb-8 ${checkAnswer(userAns, q.actualAnswer) ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                                            <Icon name={checkAnswer(userAns, q.actualAnswer) ? "CheckCircle" : "XCircle"} /> {checkAnswer(userAns, q.actualAnswer) ? "答對了！" : "答錯了..."}
                                         </div>
-                                        <button onClick={() => { if (currentIndex < questions.length - 1) { setCurrentIndex(currentIndex+1); setCurrentSelection([]); setShowFeedback(false); } else setAppState('RESULT'); }} className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black text-xl shadow-xl">下一題</button>
+                                        <div className="grid grid-cols-2 gap-4 mb-8">
+                                            <div className="bg-white p-5 rounded-2xl border text-center"><div className="text-xs font-bold text-slate-400 mb-1">您的選擇</div><div className="font-black text-xl">{normalizeTF(userAns)==='O'?'正確':(normalizeTF(userAns)==='X'?'錯誤':userAns)}</div></div>
+                                            <div className="bg-white p-5 rounded-2xl border text-center"><div className="text-xs font-bold text-slate-400 mb-1">正確答案</div><div className="font-black text-xl text-blue-600">{normalizeTF(q.actualAnswer)==='O'?'正確':(normalizeTF(q.actualAnswer)==='X'?'錯誤':q.actualAnswer)}</div></div>
+                                        </div>
+                                        <button onClick={moveToNext} className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black text-xl shadow-xl flex items-center justify-center gap-2">下一題 <ArrowRight /></button>
                                     </div>
                                 )}
                             </div>
@@ -402,63 +388,38 @@
             }
 
             if (appState === 'RESULT') {
-                const getScore = (data, offset) => {
-                    return data.reduce((acc, q, i) => acc + (checkAnswer(userAnswers[i + offset], q.actualAnswer) ? 1 : 0), 0);
-                };
-
-                let tfScore, mcScore, totalScore;
+                const getScore = (data, offset) => data.reduce((acc, q, i) => acc + (checkAnswer(userAnswers[i + offset], q.actualAnswer) ? 1 : 0), 0);
+                let tfS, mcS, total;
                 if (quizMode === 'MOCK') {
-                    tfScore = getScore(mockFullData.current.tf, 0);
-                    mcScore = getScore(mockFullData.current.mc, 50);
-                    totalScore = tfScore + mcScore;
-
-                    // 僅將「回答過且答錯」的題目存入雲端 (超時跳過的題目不存入)
-                    // 此邏輯在 handleOptionClick 已經透過 checkAnswer 處理
-                    mockFullData.current.tf.forEach((q, i) => {
-                        const ans = userAnswers[i];
-                        if (ans) syncWrongQuestion(q, checkAnswer(ans, q.actualAnswer));
-                    });
-                    mockFullData.current.mc.forEach((q, i) => {
-                        const ans = userAnswers[i + 50];
-                        if (ans) syncWrongQuestion(q, checkAnswer(ans, q.actualAnswer));
-                    });
-
-                } else {
-                    totalScore = getScore(questions, 0);
-                }
+                    tfS = getScore(mockFullData.current.tf, 0); mcS = getScore(mockFullData.current.mc, 50); total = tfS + mcS;
+                    mockFullData.current.tf.forEach((q, i) => { if (userAnswers[i]) syncWrongQuestion(q, checkAnswer(userAnswers[i], q.actualAnswer)); });
+                    mockFullData.current.mc.forEach((q, i) => { if (userAnswers[i+50]) syncWrongQuestion(q, checkAnswer(userAnswers[i+50], q.actualAnswer)); });
+                } else total = getScore(questions, 0);
 
                 return (
                     <div className="min-h-screen flex items-center justify-center p-4">
                         <div className="max-w-2xl w-full bg-white rounded-[3rem] shadow-2xl p-10 md:p-16 text-center border">
-                            <h1 className="text-4xl font-black mb-10 text-slate-800">測驗結算報告</h1>
-                            
+                            <h1 className="text-4xl font-black mb-10 text-slate-800">測驗結算</h1>
                             {quizMode === 'MOCK' ? (
                                 <div className="space-y-6 mb-12">
                                     <div className="grid grid-cols-2 gap-4">
-                                        <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
-                                            <div className="text-xs font-bold text-slate-400 mb-1 uppercase tracking-widest">是非題得分</div>
-                                            <div className="text-2xl font-black text-slate-700">{tfScore} / 50</div>
-                                        </div>
-                                        <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
-                                            <div className="text-xs font-bold text-slate-400 mb-1 uppercase tracking-widest">選擇題得分</div>
-                                            <div className="text-2xl font-black text-slate-700">{mcScore} / 50</div>
-                                        </div>
+                                        <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 text-sm font-bold text-slate-400 uppercase tracking-widest">是非: {tfS} / 50</div>
+                                        <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 text-sm font-bold text-slate-400 uppercase tracking-widest">選擇: {mcS} / 50</div>
                                     </div>
-                                    <div className="bg-blue-600 p-10 rounded-[2.5rem] text-white shadow-xl shadow-blue-100">
-                                        <div className="text-sm font-bold opacity-80 mb-2 uppercase tracking-widest">測驗總分 (滿分 100)</div>
-                                        <div className="text-6xl font-black">{totalScore}</div>
+                                    <div className="bg-blue-600 p-10 rounded-[2.5rem] text-white shadow-xl">
+                                        <div className="text-sm font-bold opacity-80 mb-2 uppercase tracking-widest">總分 (100)</div>
+                                        <div className="text-6xl font-black">{total}</div>
                                     </div>
                                 </div>
                             ) : (
                                 <div className="bg-slate-50 p-10 rounded-3xl mb-12">
-                                    <div className="text-sm text-slate-400 font-bold mb-2 uppercase tracking-widest">練習總得分</div>
-                                    <div className="text-5xl font-black text-blue-600">{totalScore} / {questions.length}</div>
+                                    <div className="text-sm text-slate-400 font-bold mb-2 uppercase tracking-widest">得分: {total} / {questions.length}</div>
+                                    <div className="text-5xl font-black text-blue-600">{Math.round((total/questions.length)*100)}%</div>
                                 </div>
                             )}
-
                             <div className="flex gap-4">
-                                <button onClick={() => setAppState('INIT')} className="flex-1 py-5 bg-slate-900 text-white rounded-2xl font-bold shadow-xl hover:scale-[1.02] transition-transform">返回首頁</button>
-                                <button onClick={() => fetchBank(quizMode)} className="flex-1 py-5 bg-slate-100 text-slate-600 rounded-2xl font-bold hover:bg-slate-200">再次挑戰</button>
+                                <button onClick={() => setAppState('INIT')} className="flex-1 py-5 bg-slate-900 text-white rounded-2xl font-bold shadow-xl">首頁</button>
+                                <button onClick={() => fetchBank(quizMode)} className="flex-1 py-5 bg-slate-100 text-slate-600 rounded-2xl font-bold">重測</button>
                             </div>
                         </div>
                     </div>
