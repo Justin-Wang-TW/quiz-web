@@ -1,0 +1,337 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot } from 'firebase/firestore';
+import { BookOpen, ClipboardList, AlertCircle, CheckCircle2, XCircle, ArrowRight, RotateCcw, Search, CheckSquare, Square, Check, X, Bookmark, Database } from 'lucide-react';
+
+// --- Firebase 配置 (優先讀取環境變數，否則讀取下方手動填寫的值) ---
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+  apiKey: "AIzaSyCS9aa4aAL7Qw2rPQdnfx-zYgA575YllVw", 
+  authDomain: "quiz-db627.firebaseapp.com",
+  projectId: "quiz-db627",
+  storageBucket: "quiz-db627.firebasestorage.app",
+  messagingSenderId: "613549084178",
+  appId: "1:613549084178:web:5df7a4036aa586a66a92cb"
+};
+
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'traffic-quiz-app';
+
+// 初始化 Firebase
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+// Google Sheets CSV 導出連結
+const TF_SHEET_URL = "https://docs.google.com/spreadsheets/d/1QWJowhf3psJBO5L9qxYdqTXY0I6aHToMD3ySj8cod2U/export?format=csv&gid=297844755";
+const MC_SHEET_URL = "https://docs.google.com/spreadsheets/d/18Isb8r4Kf_GHbPbCbxWNIPzlQ_qMvBmmvoWOs9bdDeQ/export?format=csv&gid=795659602";
+
+const App = () => {
+  const [user, setUser] = useState(null);
+  const [appState, setAppState] = useState('INIT'); // INIT, LOADING, QUIZ, RESULT, ANALYSIS
+  const [quizMode, setQuizMode] = useState(null); 
+  const [questions, setQuestions] = useState([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [userAnswers, setUserAnswers] = useState({}); 
+  const [currentSelection, setCurrentSelection] = useState([]); 
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [analysisId, setAnalysisId] = useState("");
+  const [wrongBank, setWrongBank] = useState([]); // 存儲從雲端同步的錯題
+
+  // --- 1. Firebase 認證邏輯 (RULE 3) ---
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (err) {
+        console.error("Auth Error:", err);
+      }
+    };
+    initAuth();
+    const unsubscribe = onAuthStateChanged(auth, setUser);
+    return () => unsubscribe();
+  }, []);
+
+  // --- 2. 雲端錯題本監聽 (RULE 1) ---
+  useEffect(() => {
+    if (!user) return;
+    const wrongRef = collection(db, 'artifacts', appId, 'users', user.uid, 'wrongQuestions');
+    const unsubscribe = onSnapshot(wrongRef, (snapshot) => {
+      setWrongBank(snapshot.docs.map(doc => doc.data()));
+    }, (err) => console.error("Firestore Listen Error:", err));
+    return () => unsubscribe();
+  }, [user]);
+
+  // --- 3. CSV 解析與正規化 ---
+  const parseCSV = (text) => {
+    const result = [];
+    let row = [], field = '', inQuotes = false;
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      if (inQuotes) {
+        if (char === '"' && text[i + 1] === '"') { field += '"'; i++; }
+        else if (char === '"') inQuotes = false;
+        else field += char;
+      } else {
+        if (char === '"') inQuotes = true;
+        else if (char === ',') { row.push(field.trim()); field = ''; }
+        else if (char === '\n' || char === '\r') {
+          row.push(field.trim());
+          if (row.length > 0 && row.some(f => f !== '')) result.push(row);
+          row = []; field = '';
+          if (char === '\r' && text[i + 1] === '\n') i++;
+        } else field += char;
+      }
+    }
+    if (row.length > 0 || field !== '') { row.push(field.trim()); result.push(row); }
+    const headers = result[0]?.map(h => h.trim()) || [];
+    return result.slice(1).map(r => {
+      const obj = {};
+      headers.forEach((h, i) => { if (h) obj[h] = r[i] || ""; });
+      obj.actualTitle = obj['題目'] || "";
+      obj.actualAnswer = obj['正解'] || obj['答案'] || "";
+      obj.actualExplanation = obj['說明'] || obj['解析'] || "";
+      obj.rawOptions = obj['選項'] || "";
+      return obj;
+    });
+  };
+
+  const normalizeTF = (val) => {
+    if (!val) return "";
+    const v = val.toString().toUpperCase().trim();
+    if (['O', 'A', '1', 'T', '正確', 'TRUE', '○', '◯', '✅', '⭕', '是'].includes(v)) return 'O';
+    if (['X', 'B', '2', 'F', '錯誤', 'FALSE', '✕', '✖', '❌', '否'].includes(v)) return 'X';
+    return v;
+  };
+
+  // --- 4. 練習模式邏輯 ---
+  const fetchBank = async (mode) => {
+    setAppState('LOADING');
+    try {
+      const [tfRes, mcRes] = await Promise.all([
+        fetch(TF_SHEET_URL).then(r => r.text()),
+        fetch(MC_SHEET_URL).then(r => r.text())
+      ]);
+      const tfData = parseCSV(tfRes).map(q => ({ ...q, type: 'TF' }));
+      const mcData = parseCSV(mcRes).map(q => ({ ...q, type: 'MC' }));
+
+      let selected = [];
+      if (mode === 'TF_PRACTICE') selected = tfData.sort(() => 0.5 - Math.random()).slice(0, 20);
+      else if (mode === 'MC_PRACTICE') selected = mcData.sort(() => 0.5 - Math.random()).slice(0, 20);
+      else if (mode === 'WRONG_PRACTICE') selected = [...wrongBank].sort(() => 0.5 - Math.random());
+      else if (mode === 'MOCK') {
+        selected = [...tfData.sort(() => 0.5 - Math.random()).slice(0, 50), ...mcData.sort(() => 0.5 - Math.random()).slice(0, 50)];
+      }
+
+      if (selected.length === 0 && mode === 'WRONG_PRACTICE') { setAppState('INIT'); return; }
+      setQuestions(selected);
+      setCurrentIndex(0); setUserAnswers({}); setCurrentSelection([]); setShowFeedback(false);
+      setAppState('QUIZ');
+      setQuizMode(mode);
+    } catch (e) { setAppState('INIT'); }
+  };
+
+  // --- 5. 雲端同步邏輯 ---
+  const syncWrongQuestion = async (q, isCorrect) => {
+    if (!user) return;
+    const qId = btoa(unescape(encodeURIComponent(q.actualTitle))).replace(/[/+=]/g, '');
+    const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'wrongQuestions', qId);
+    if (isCorrect) await deleteDoc(docRef);
+    else await setDoc(docRef, { ...q, timestamp: Date.now() });
+  };
+
+  const checkAnswer = (userAns, correctAns) => {
+    if (!userAns) return false;
+    const norm = (s) => s.split(',').map(i => normalizeTF(i)).sort().join(',');
+    return norm(userAns) === norm(correctAns);
+  };
+
+  const handleOptionClick = (key) => {
+    if (showFeedback) return;
+    const q = currentQuestion;
+    const isMC = q.actualTitle.includes("(多選)") || q.actualAnswer.includes(",");
+    if (isMC) setCurrentSelection(p => p.includes(key) ? p.filter(k => k !== key) : [...p, key]);
+    else {
+      const ok = checkAnswer(key, q.actualAnswer);
+      setUserAnswers({ ...userAnswers, [currentIndex]: key });
+      setShowFeedback(true);
+      syncWrongQuestion(q, ok);
+    }
+  };
+
+  const handleMultiSubmit = () => {
+    const finalAns = [...currentSelection].sort().join(',');
+    const ok = checkAnswer(finalAns, currentQuestion.actualAnswer);
+    setUserAnswers({ ...userAnswers, [currentIndex]: finalAns });
+    setShowFeedback(true);
+    syncWrongQuestion(currentQuestion, ok);
+  };
+
+  const formatDisplay = (val, type) => {
+    if (!val) return "未作答";
+    if (type === 'TF') {
+        const n = normalizeTF(val);
+        return n === 'O' ? '正確' : (n === 'X' ? '錯誤' : val);
+    }
+    return val;
+  };
+
+  // --- UI 部分 ---
+  if (appState === 'INIT') return (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <div className="max-w-xl w-full bg-white rounded-3xl shadow-2xl p-8 md:p-12 text-center border border-slate-100">
+        <div className="w-20 h-20 bg-blue-600 rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-xl shadow-blue-200">
+          <BookOpen className="w-10 h-10 text-white" />
+        </div>
+        <h1 className="text-3xl font-black text-slate-800 mb-2">交通法規雲端練習系統</h1>
+        <p className="text-slate-500 mb-10">資料同步：{user ? <span className="text-emerald-500 font-bold">已連接雲端錯題本</span> : '連線中...'}</p>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <button onClick={() => fetchBank('TF_PRACTICE')} className="p-6 border-2 border-slate-100 hover:border-blue-500 rounded-2xl transition-all text-left group">
+            <CheckCircle2 className="w-8 h-8 text-blue-600 mb-4" />
+            <div className="font-bold text-xl mb-1">是非題練習</div>
+            <div className="text-sm text-slate-400">隨機抽取 20 題</div>
+          </button>
+          <button onClick={() => fetchBank('MC_PRACTICE')} className="p-6 border-2 border-slate-100 hover:border-blue-500 rounded-2xl transition-all text-left">
+            <ClipboardList className="w-8 h-8 text-blue-600 mb-4" />
+            <div className="font-bold text-xl mb-1">選擇題練習</div>
+            <div className="text-sm text-slate-400">隨機抽取 20 題</div>
+          </button>
+          <button disabled={wrongBank.length === 0} onClick={() => fetchBank('WRONG_PRACTICE')} className={`p-6 border-2 rounded-2xl transition-all text-left ${wrongBank.length > 0 ? 'bg-rose-50 border-rose-100 hover:border-rose-400' : 'bg-slate-50 border-slate-100 opacity-50'}`}>
+            <Bookmark className={`w-8 h-8 mb-4 ${wrongBank.length > 0 ? 'text-rose-500' : 'text-slate-300'}`} />
+            <div className="font-bold text-xl mb-1">錯題強化練習</div>
+            <div className="text-sm text-slate-400">累積 {wrongBank.length} 題錯題</div>
+          </button>
+          <button onClick={() => fetchBank('MOCK')} className="p-6 bg-slate-900 text-white rounded-2xl hover:bg-black transition-all shadow-xl text-left">
+            <Database className="w-8 h-8 text-blue-400 mb-4" />
+            <div className="font-bold text-xl mb-1">全真模擬考題</div>
+            <div className="text-sm text-blue-300">100 題 / 100 分</div>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (appState === 'LOADING') return (
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center">
+      <div className="w-14 h-14 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-6"></div>
+      <p className="text-slate-500 font-bold text-xl">正在同步雲端進度...</p>
+    </div>
+  );
+
+  if (appState === 'QUIZ') {
+    const q = questions[currentIndex];
+    const isMC = q.actualTitle.includes("(多選)") || q.actualAnswer.includes(",");
+    const userAns = userAnswers[currentIndex];
+    const isCorrect = checkAnswer(userAns, q.actualAnswer);
+    const options = q.type === 'TF' ? [{key:'O', val:'正確 (O)'}, {key:'X', val:'錯誤 (X)'}] : (() => {
+        const matches = [...q.rawOptions.matchAll(/([A-E])[.、\s]+(.*?)(?=\s*[A-E][.、\s]|$)/g)];
+        return matches.length > 0 ? matches.map(m => ({ key: m[1], val: m[2].trim() })) : q.rawOptions.split(/\s+/).filter(s=>s).map((s,i)=>({key:String.fromCharCode(65+i), val:s}));
+    })();
+
+    return (
+      <div className="min-h-screen bg-slate-50 p-4 md:p-8">
+        <div className="max-w-3xl mx-auto">
+          <div className="flex justify-between items-center mb-6">
+            <span className="px-4 py-2 bg-white rounded-full text-blue-600 font-bold shadow-sm border border-slate-100 text-sm">第 {currentIndex + 1} / {questions.length} 題</span>
+            <span className="text-slate-400 font-bold text-xs uppercase">{q.type === 'TF' ? '是非' : '選擇'}</span>
+          </div>
+          <div className="bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border">
+            <div className="p-8 md:p-12">
+              <h2 className="text-2xl font-bold text-slate-800 mb-10 leading-relaxed">{q.actualTitle}</h2>
+              <div className="space-y-4">
+                {options.map(opt => {
+                  const isChecked = isMC ? currentSelection.includes(opt.key) : userAns === opt.key;
+                  const correctArr = q.actualAnswer.split(',').map(s=>normalizeTF(s.trim()));
+                  const isPartOfCorrect = correctArr.includes(normalizeTF(opt.key));
+                  let style = "w-full p-5 rounded-2xl border-2 text-left transition-all flex items-center gap-5 ";
+                  if (!showFeedback) style += isChecked ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-50 hover:border-slate-200";
+                  else style += isPartOfCorrect ? "border-emerald-500 bg-emerald-50 text-emerald-800" : (isChecked ? "border-rose-500 bg-rose-50 text-rose-800" : "opacity-40");
+                  return (
+                    <button key={opt.key} onClick={() => handleOptionClick(opt.key)} disabled={showFeedback} className={style}>
+                      {q.type !== 'TF' && <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black ${isChecked ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}`}>{opt.key}</div>}
+                      {q.type === 'TF' && isChecked && <CheckCircle2 className={showFeedback ? (isPartOfCorrect ? 'text-emerald-600' : 'text-rose-600') : 'text-blue-600'} />}
+                      <span className="text-lg font-bold flex-1">{opt.val}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {isMC && !showFeedback && (
+                <button onClick={handleMultiSubmit} disabled={currentSelection.length===0} className="mt-10 w-full py-5 bg-blue-600 text-white rounded-2xl font-black text-xl shadow-lg shadow-blue-100">確認送出答案 ({currentSelection.length})</button>
+              )}
+            </div>
+            {showFeedback && (
+              <div className="bg-slate-50 p-8 md:p-12 border-t-2">
+                <div className={`flex items-center gap-3 p-5 rounded-2xl font-black text-xl mb-8 ${isCorrect ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                  <Icon name={isCorrect ? "CheckCircle" : "XCircle"} /> {isCorrect ? "答對了！" : "答錯了..."}
+                </div>
+                <div className="grid grid-cols-2 gap-4 mb-8">
+                  <div className="bg-white p-5 rounded-2xl border text-center"><div className="text-xs text-slate-400 mb-1">您的選擇</div><div className="font-black text-xl">{formatDisplay(userAns, q.type)}</div></div>
+                  <div className="bg-white p-5 rounded-2xl border text-center"><div className="text-xs text-slate-400 mb-1">正確答案</div><div className="font-black text-xl text-blue-600">{formatDisplay(q.actualAnswer, q.type)}</div></div>
+                </div>
+                <div className="bg-white p-6 rounded-2xl border mb-10 text-slate-700 leading-relaxed font-medium">{q.actualExplanation || "暫無解析內容。"}</div>
+                <button onClick={() => { if (currentIndex < questions.length - 1) { setCurrentIndex(currentIndex+1); setCurrentSelection([]); setShowFeedback(false); } else setAppState('RESULT'); }} className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black text-xl flex items-center justify-center gap-3 shadow-xl">下一題 <ArrowRight /></button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (appState === 'RESULT') {
+    const scoreCount = questions.reduce((acc, q, idx) => acc + (checkAnswer(userAnswers[idx], q.actualAnswer) ? 1 : 0), 0);
+    return (
+      <div className="min-h-screen bg-slate-50 p-4 md:p-8 flex items-center justify-center text-slate-800">
+        <div className="max-w-xl w-full bg-white rounded-[3rem] shadow-2xl p-10 md:p-16 text-center border">
+          <h1 className="text-4xl font-black mb-10">練習完成</h1>
+          <div className="grid grid-cols-2 gap-6 mb-12">
+            <div className="bg-slate-50 p-8 rounded-3xl border text-center">
+              <div className="text-sm font-bold text-slate-400 mb-2 uppercase">{quizMode==='MOCK'?'總分':'答對題數'}</div>
+              <div className="text-3xl font-black">{quizMode==='MOCK' ? scoreCount : `${scoreCount} / ${questions.length}`}</div>
+            </div>
+            <div className="bg-slate-50 p-8 rounded-3xl border text-center">
+              <div className="text-sm font-bold text-slate-400 mb-2 uppercase">正確率</div>
+              <div className="text-3xl font-black text-blue-600">{Math.round((scoreCount/questions.length)*100)}%</div>
+            </div>
+          </div>
+          <div className="flex gap-4">
+            <button onClick={() => fetchBank(quizMode)} className="flex-1 py-5 bg-slate-100 rounded-2xl font-bold">重測原題</button>
+            <button onClick={() => setAppState('INIT')} className="flex-1 py-5 bg-slate-900 text-white rounded-2xl font-bold shadow-xl">返回首頁</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+};
+
+// 輔助圖示組件
+const Icon = ({ name, className = "w-6 h-6" }) => {
+    const icons = {
+        CheckCircle: (
+            <>
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                <polyline points="22 4 12 14.01 9 11.01" />
+            </>
+        ),
+        XCircle: (
+            <>
+                <circle cx="12" cy="12" r="10" />
+                <line x1="15" y1="9" x2="9" y2="15" />
+                <line x1="9" y1="9" x2="15" y2="15" />
+            </>
+        )
+    };
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+            {icons[name] || null}
+        </svg>
+    );
+};
+
+export default App;
