@@ -52,7 +52,12 @@
                 Trash: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></g>,
                 ArrowRight: <polyline points="12 5 19 12 12 19" />,
                 Layers: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></g>,
-                Graduation: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></g>
+                Graduation: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></g>,
+                ChevronLeft: <polyline points="15 18 9 12 15 6" />,
+                ChevronRight: <polyline points="9 18 15 12 9 6" />,
+                ChevronDown: <polyline points="6 9 12 15 18 9" />,
+                ChevronUp: <polyline points="18 15 12 9 6 15" />,
+                List: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></g>
             };
             return (
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
@@ -73,6 +78,7 @@
             const [showFeedback, setShowFeedback] = useState(false);
             const [wrongBank, setWrongBank] = useState([]);
             const [isClearing, setIsClearing] = useState(false);
+            const [isNavOpen, setIsNavOpen] = useState(false); // 控制題號選單開關
 
             const [timeLeft, setTimeLeft] = useState(0);
             const timerRef = useRef(null);
@@ -201,17 +207,12 @@
                     }));
 
                     let selected = [];
-                    if (mode === 'TF_ALL') {
-                        selected = tfData.sort(() => 0.5 - Math.random());
-                    } else if (mode === 'MC_ALL') {
-                        selected = mcData.sort(() => 0.5 - Math.random());
-                    } else if (mode === 'TF_PRACTICE') {
-                        selected = tfData.sort(() => 0.5 - Math.random()).slice(0, 20);
-                    } else if (mode === 'MC_PRACTICE') {
-                        selected = mcData.sort(() => 0.5 - Math.random()).slice(0, 20);
-                    } else if (mode === 'WRONG_PRACTICE') {
-                        selected = [...wrongBank].sort(() => 0.5 - Math.random());
-                    } else if (mode === 'MOCK') {
+                    if (mode === 'TF_ALL') selected = tfData.sort(() => 0.5 - Math.random());
+                    else if (mode === 'MC_ALL') selected = mcData.sort(() => 0.5 - Math.random());
+                    else if (mode === 'TF_PRACTICE') selected = tfData.sort(() => 0.5 - Math.random()).slice(0, 20);
+                    else if (mode === 'MC_PRACTICE') selected = mcData.sort(() => 0.5 - Math.random()).slice(0, 20);
+                    else if (mode === 'WRONG_PRACTICE') selected = [...wrongBank].sort(() => 0.5 - Math.random());
+                    else if (mode === 'MOCK') {
                         mockFullData.current = {
                             tf: tfData.sort(() => 0.5 - Math.random()).slice(0, 50),
                             mc: mcData.sort(() => 0.5 - Math.random()).slice(0, 50)
@@ -229,7 +230,7 @@
                     setQuestions(selected);
                     setCurrentIndex(0); setUserAnswers({}); setCurrentSelection([]); setShowFeedback(false);
                     setAppState('QUIZ'); setQuizMode(mode);
-                    setTimeLeft(0);
+                    setTimeLeft(0); setIsNavOpen(false);
                 } catch (e) { setAppState('INIT'); }
             };
 
@@ -237,7 +238,7 @@
                 setMockStage(phase);
                 setQuestions(phase === 'TF' ? mockFullData.current.tf : mockFullData.current.mc);
                 setCurrentIndex(0); setCurrentSelection([]); setShowFeedback(false);
-                setTimeLeft(50 * 60); setAppState('QUIZ');
+                setTimeLeft(50 * 60); setAppState('QUIZ'); setIsNavOpen(false);
             };
 
             const syncWrongQuestion = async (q, isCorrect) => {
@@ -258,13 +259,11 @@
                 if (showFeedback) return;
                 const q = questions[currentIndex];
                 const isMC = q.actualTitle.includes("(多選)") || q.actualAnswer.includes(",");
-                if (isMC) {
-                    setCurrentSelection(p => p.includes(key) ? p.filter(k => k !== key) : [...p, key]);
-                } else {
+                if (isMC) setCurrentSelection(p => p.includes(key) ? p.filter(k => k !== key) : [...p, key]);
+                else {
                     const ansKey = currentIndex + (mockStage === 'MC' ? 50 : 0);
                     setUserAnswers({...userAnswers, [ansKey]: key});
-                    if (quizMode === 'MOCK') moveToNext();
-                    else {
+                    if (quizMode !== 'MOCK') {
                         setShowFeedback(true);
                         syncWrongQuestion(q, checkAnswer(key, q.actualAnswer));
                     }
@@ -275,10 +274,11 @@
                 const finalAns = [...currentSelection].sort().join(',');
                 const ansKey = currentIndex + (mockStage === 'MC' ? 50 : 0);
                 setUserAnswers({...userAnswers, [ansKey]: finalAns});
-                if (quizMode === 'MOCK') moveToNext();
-                else {
+                if (quizMode !== 'MOCK') {
                     setShowFeedback(true);
                     syncWrongQuestion(questions[currentIndex], checkAnswer(finalAns, questions[currentIndex].actualAnswer));
+                } else {
+                    setCurrentSelection([]);
                 }
             };
 
@@ -289,6 +289,14 @@
                 } else {
                     if (quizMode === 'MOCK' && mockStage === 'TF') startMockPhase('MC');
                     else setAppState('RESULT');
+                }
+            };
+
+            const moveToPrev = () => {
+                if (currentIndex > 0) {
+                    setShowFeedback(false);
+                    setCurrentIndex(currentIndex - 1);
+                    setCurrentSelection([]);
                 }
             };
 
@@ -313,48 +321,39 @@
                         <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-8 shadow-lg shadow-blue-100">
                             <Icon name="BookOpen" className="text-white" />
                         </div>
-                        <h1 className="text-3xl font-black text-slate-800 mb-2">人本街道概論考古題練習</h1>
-                        <p className="text-slate-400 mb-10 text-sm">請選擇您要進行的練習模式</p>
+                        <h1 className="text-3xl font-black text-slate-800 mb-2 font-bold uppercase tracking-tight">人本街道考古題練習</h1>
+                        <p className="text-slate-400 mb-10 text-sm font-bold uppercase tracking-widest">請選擇練習模式</p>
                         
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
-                            {/* 1. 是非題全題庫練習 */}
                             <button onClick={() => fetchBank('TF_ALL')} className="p-5 border-2 border-slate-100 hover:border-blue-500 rounded-3xl transition-all group">
                                 <Icon name="Layers" className="text-blue-500 mb-2 group-hover:scale-110 transition-transform" />
                                 <div className="font-bold text-slate-700">是非題全題庫練習</div>
-                                <div className="text-xs text-slate-400">完整巡迴，所有題目皆可練習</div>
+                                <div className="text-xs text-slate-400 font-medium">不限時，跑完所有題目</div>
                             </button>
-
-                            {/* 2. 選擇題全題庫練習 */}
                             <button onClick={() => fetchBank('MC_ALL')} className="p-5 border-2 border-slate-100 hover:border-blue-500 rounded-3xl transition-all group">
                                 <Icon name="Layers" className="text-emerald-500 mb-2 group-hover:scale-110 transition-transform" />
                                 <div className="font-bold text-slate-700">選擇題全題庫練習</div>
-                                <div className="text-xs text-slate-400">完整巡迴，不漏掉任何細節</div>
+                                <div className="text-xs text-slate-400 font-medium">不限時，完整題庫精通</div>
                             </button>
-
-                            {/* 3. 是非題隨堂測驗 */}
                             <button onClick={() => fetchBank('TF_PRACTICE')} className="p-5 border-2 border-slate-100 hover:border-blue-500 rounded-3xl transition-all group">
                                 <Icon name="CheckCircle" className="text-blue-600 mb-2 group-hover:scale-110 transition-transform" />
                                 <div className="font-bold text-slate-700">是非題隨堂測驗</div>
-                                <div className="text-xs text-slate-400">隨機 20 題練習</div>
+                                <div className="text-xs text-slate-400 font-medium">隨機 20 題速測</div>
                             </button>
-
-                            {/* 4. 選擇題隨堂測驗 */}
                             <button onClick={() => fetchBank('MC_PRACTICE')} className="p-5 border-2 border-slate-100 hover:border-blue-500 rounded-3xl transition-all group">
                                 <Icon name="Graduation" className="text-indigo-600 mb-2 group-hover:scale-110 transition-transform" />
                                 <div className="font-bold text-slate-700">選擇題隨堂測驗</div>
-                                <div className="text-xs text-slate-400">隨機 20 題練習</div>
+                                <div className="text-xs text-slate-400 font-medium">隨機 20 題速測</div>
                             </button>
-
-                            {/* 5. 全真模擬試題 */}
-                            <button onClick={() => fetchBank('MOCK')} className="p-5 bg-slate-900 text-white rounded-3xl hover:bg-black transition-all shadow-xl md:col-span-2 flex items-center justify-between">
+                            <button onClick={() => fetchBank('MOCK')} className="p-6 bg-slate-900 text-white rounded-3xl hover:bg-black transition-all shadow-xl md:col-span-2 flex items-center justify-between group">
                                 <div className="text-left">
-                                    <div className="font-black text-lg">全真模擬試題</div>
-                                    <div className="text-xs text-blue-300">是非/選擇各50題，限時各50分鐘，每題1分</div>
+                                    <div className="font-black text-xl mb-1">全真模擬試題</div>
+                                    <div className="text-xs text-blue-300 font-medium">是非/選擇各50題，限時各50分鐘</div>
                                 </div>
-                                <Icon name="Database" className="text-blue-400 w-8 h-8" />
+                                <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                                    <Icon name="Database" className="text-blue-400 w-8 h-8" />
+                                </div>
                             </button>
-
-                            {/* 6. 錯題強化練習 */}
                             <div className="relative group md:col-span-2">
                                 <button 
                                     disabled={wrongBank.length === 0} 
@@ -362,12 +361,12 @@
                                     className={`w-full h-full p-6 border-2 rounded-3xl transition-all ${wrongBank.length > 0 ? 'bg-rose-50 border-rose-100 hover:border-rose-400' : 'bg-slate-50 border-slate-100 opacity-40'}`}
                                 >
                                     <div className="flex items-center gap-3">
-                                        <div className="p-2 bg-rose-500 rounded-xl text-white">
-                                            <Icon name="XCircle" className="w-5 h-5" />
+                                        <div className="w-12 h-12 bg-rose-500 rounded-2xl text-white flex items-center justify-center">
+                                            <Icon name="XCircle" className="w-7 h-7" />
                                         </div>
                                         <div className="text-left">
-                                            <div className="font-black text-slate-800">錯題強化練習</div>
-                                            <div className="text-xs text-rose-400 font-bold">目前累積 {wrongBank.length} 題</div>
+                                            <div className="font-black text-slate-800 text-lg">錯題強化練習</div>
+                                            <div className="text-xs text-rose-400 font-bold uppercase tracking-wider">目前累積 {wrongBank.length} 題</div>
                                         </div>
                                     </div>
                                 </button>
@@ -375,8 +374,7 @@
                                     <button 
                                         onClick={handleClearWrongBank}
                                         disabled={isClearing}
-                                        title="清空錯題本"
-                                        className="absolute top-1/2 -translate-y-1/2 right-6 p-3 text-rose-300 hover:text-rose-600 transition-colors"
+                                        className="absolute top-1/2 -translate-y-1/2 right-6 p-4 text-rose-300 hover:text-rose-600 hover:bg-rose-100/50 rounded-2xl transition-all"
                                     >
                                         <Icon name="Trash" className="w-6 h-6" />
                                     </button>
@@ -389,17 +387,17 @@
 
             if (appState === 'LOADING') return (
                 <div className="min-h-screen flex flex-col items-center justify-center font-bold text-slate-500">
-                    <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
-                    同步雲端題庫中...
+                    <div className="w-14 h-14 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+                    <span className="uppercase tracking-widest text-sm">正在讀取雲端題庫</span>
                 </div>
             );
 
             if (appState === 'QUIZ') {
                 const q = questions[currentIndex];
                 const isMC = q.actualTitle.includes("(多選)") || q.actualAnswer.includes(",");
-                const ansKey = currentIndex + (mockStage === 'MC' ? 50 : 0);
+                const ansKeyBase = mockStage === 'MC' ? 50 : 0;
+                const ansKey = currentIndex + ansKeyBase;
                 const userAns = userAnswers[ansKey];
-                const isCorrect = checkAnswer(userAns, q.actualAnswer);
                 const options = q.type === 'TF' ? [{key:'O', val:'正確 (O)'}, {key:'X', val:'錯誤 (X)'}] : (() => {
                     const matches = [...q.rawOptions.matchAll(/([A-E])[.、\s]+(.*?)(?=\s*[A-E][.、\s]|$)/g)];
                     return matches.length > 0 ? matches.map(m => ({ key: m[1], val: m[2].trim() })) : q.rawOptions.split(/\s+/).filter(s=>s).map((s,i)=>({key:String.fromCharCode(65+i), val:s}));
@@ -407,30 +405,81 @@
 
                 return (
                     <div className="min-h-screen p-4 md:p-8 flex flex-col items-center">
-                        <div className="max-w-3xl w-full">
+                        <div className="max-w-4xl w-full">
+                            {/* 模擬考開闔式導覽面板 */}
+                            {quizMode === 'MOCK' && (
+                                <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-4 mb-6 transition-all overflow-hidden">
+                                    <button 
+                                        onClick={() => setIsNavOpen(!isNavOpen)}
+                                        className="w-full flex justify-between items-center px-2 py-1 hover:bg-slate-50 rounded-xl transition-colors"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                                                <Icon name="List" className="w-5 h-5" />
+                                            </div>
+                                            <div className="text-left">
+                                                <div className="font-black text-slate-700 text-sm">模擬考：{mockStage === 'TF' ? '是非題' : '選擇題'}</div>
+                                                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">已完成 {Object.keys(userAnswers).filter(k => (mockStage === 'TF' ? k < 50 : k >= 50)).length} / 50 題</div>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-4">
+                                            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full font-mono font-bold text-xs shadow-inner ${timeLeft < 300 ? 'bg-rose-100 text-rose-600 animate-pulse' : 'bg-slate-100 text-slate-500'}`}>
+                                                <Icon name="Timer" className="w-3.5 h-3.5" /> {formatTime(timeLeft)}
+                                            </div>
+                                            <Icon name={isNavOpen ? "ChevronUp" : "ChevronDown"} className="text-slate-300" />
+                                        </div>
+                                    </button>
+                                    
+                                    {isNavOpen && (
+                                        <div className="mt-6 pt-6 border-t border-slate-50 grid grid-cols-5 sm:grid-cols-10 gap-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                                            {Array.from({length: 50}, (_, i) => {
+                                                const key = i + ansKeyBase;
+                                                const isAnswered = !!userAnswers[key];
+                                                const isCurrent = currentIndex === i;
+                                                return (
+                                                    <button 
+                                                        key={i} 
+                                                        onClick={() => { setCurrentIndex(i); setIsNavOpen(false); }}
+                                                        className={`h-10 rounded-xl text-sm font-black transition-all border-2 
+                                                            ${isCurrent ? 'border-blue-600 ring-2 ring-blue-50 scale-105 z-10' : 'border-transparent'} 
+                                                            ${isAnswered ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
+                                                    >
+                                                        {i + 1}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
                             <div className="flex justify-between items-center mb-6">
                                 <div className="flex gap-2">
-                                    <span className="px-4 py-2 bg-blue-600 text-white rounded-full font-bold shadow-sm text-sm">第 {currentIndex + 1} / {questions.length} 題</span>
-                                    <span className="px-4 py-2 bg-white text-slate-500 border rounded-full font-bold text-sm">
-                                        {quizMode === 'MOCK' ? (mockStage === 'TF' ? '模擬考：是非' : '模擬考：選擇') : '練習模式'}
+                                    <span className="px-4 py-2 bg-blue-600 text-white rounded-full font-bold shadow-sm text-sm">
+                                        第 {currentIndex + 1} 題
                                     </span>
+                                    {quizMode !== 'MOCK' && (
+                                        <span className="px-4 py-2 bg-white text-slate-500 border rounded-full font-bold text-sm uppercase tracking-widest">
+                                            {quizMode.includes('ALL') ? '全題庫練習' : '隨堂練習'}
+                                        </span>
+                                    )}
                                 </div>
-                                {quizMode === 'MOCK' && (
-                                    <div className={`flex items-center gap-2 px-4 py-2 rounded-full font-mono font-bold shadow-inner ${timeLeft < 300 ? 'bg-rose-100 text-rose-600 animate-pulse' : 'bg-slate-100 text-slate-600'}`}>
-                                        <Icon name="Timer" className="w-4 h-4" /> {formatTime(timeLeft)}
-                                    </div>
-                                )}
                             </div>
+
                             <div className="bg-white rounded-[2rem] shadow-xl overflow-hidden border border-slate-100">
                                 <div className="p-8 md:p-12">
-                                    <h2 className="text-2xl font-bold text-slate-800 mb-10 leading-relaxed">{q.actualTitle}</h2>
+                                    <h2 className="text-2xl font-bold text-slate-800 mb-10 leading-relaxed min-h-[4rem]">{q.actualTitle}</h2>
                                     <div className="space-y-4">
                                         {options.map(opt => {
-                                            const isChecked = isMC ? currentSelection.includes(opt.key) : userAns === opt.key;
+                                            const isChecked = isMC ? (quizMode === 'MOCK' ? (userAns?.split(',').includes(opt.key)) : currentSelection.includes(opt.key)) : userAns === opt.key;
                                             const isPartOfCorrect = q.actualAnswer.split(',').map(s=>normalizeTF(s.trim())).includes(normalizeTF(opt.key));
                                             let style = "w-full p-5 rounded-2xl border-2 text-left transition-all flex items-center gap-5 ";
                                             if (!showFeedback) style += isChecked ? "border-blue-600 bg-blue-50 text-blue-700 shadow-sm" : "border-slate-50 hover:border-slate-200 text-slate-600";
-                                            else style += isPartOfCorrect ? "border-emerald-500 bg-emerald-50 text-emerald-800" : (isChecked ? "border-rose-500 bg-rose-50 text-rose-800" : "opacity-40");
+                                            else {
+                                                if (isPartOfCorrect) style += "border-emerald-500 bg-emerald-50 text-emerald-800 shadow-inner";
+                                                else if (isChecked) style += "border-rose-500 bg-rose-50 text-rose-800 shadow-inner";
+                                                else style += "border-slate-50 opacity-40";
+                                            }
                                             return (
                                                 <button key={opt.key} onClick={() => handleOptionClick(opt.key)} disabled={showFeedback} className={style}>
                                                     {q.type !== 'TF' && <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black ${isChecked ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}`}>{opt.key}</div>}
@@ -440,38 +489,39 @@
                                             );
                                         })}
                                     </div>
-                                    {isMC && !showFeedback && (
-                                        <div className="flex gap-4 mt-10">
-                                            <button onClick={handleMultiSubmit} disabled={currentSelection.length===0} className="flex-1 py-5 bg-blue-600 text-white rounded-2xl font-black text-xl shadow-lg">確認送出</button>
-                                            {quizMode === 'MOCK' && <button onClick={moveToNext} className="px-8 py-5 bg-slate-100 text-slate-400 rounded-2xl font-bold">跳過</button>}
-                                        </div>
-                                    )}
-                                    {quizMode === 'MOCK' && !isMC && <button onClick={moveToNext} className="mt-8 text-slate-400 text-sm underline underline-offset-4 block mx-auto">跳過此題</button>}
+                                    <div className="mt-10 flex flex-col gap-4">
+                                        {isMC && !showFeedback && (
+                                            <button onClick={handleMultiSubmit} className="w-full py-5 bg-blue-600 text-white rounded-2xl font-black text-xl shadow-lg shadow-blue-100">
+                                                {quizMode === 'MOCK' ? '確認選擇' : '送出答案'}
+                                            </button>
+                                        )}
+                                        {quizMode === 'MOCK' ? (
+                                            <div className="flex justify-between items-center pt-6 border-t mt-6">
+                                                <button onClick={moveToPrev} disabled={currentIndex === 0} className="flex items-center gap-2 px-6 py-3 font-black text-slate-400 hover:text-slate-600 disabled:opacity-20 transition-all"><Icon name="ChevronLeft" /> 上一題</button>
+                                                <button onClick={moveToNext} className="flex items-center gap-2 px-8 py-4 bg-slate-900 text-white rounded-2xl font-black shadow-lg hover:bg-black transition-all">
+                                                    {currentIndex === 49 ? (mockStage === 'TF' ? '進入選擇題' : '點此交卷') : '下一題'}
+                                                    <Icon name="ChevronRight" />
+                                                </button>
+                                            </div>
+                                        ) : !showFeedback && !isMC && (
+                                            <button onClick={moveToNext} className="text-slate-400 text-sm font-bold underline underline-offset-8 block mx-auto py-4">跳過此題</button>
+                                        )}
+                                    </div>
                                 </div>
                                 {showFeedback && (
-                                    <div className="bg-slate-50 p-8 md:p-12 border-t-2">
-                                        <div className={`flex items-center gap-3 p-5 rounded-2xl font-black text-xl mb-8 ${isCorrect ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                                            <Icon name={isCorrect ? "CheckCircle" : "XCircle"} /> {isCorrect ? "答對了！" : "答錯了..."}
+                                    <div className="bg-slate-50 p-8 md:p-12 border-t-2 border-slate-100">
+                                        <div className={`flex items-center gap-3 p-5 rounded-2xl font-black text-xl mb-8 ${checkAnswer(userAns, q.actualAnswer) ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                                            <Icon name={checkAnswer(userAns, q.actualAnswer) ? "CheckCircle" : "XCircle"} /> {checkAnswer(userAns, q.actualAnswer) ? "答對了！" : "答錯了..."}
                                         </div>
                                         <div className="grid grid-cols-2 gap-4 mb-8">
-                                            <div className="bg-white p-5 rounded-2xl border text-center">
-                                                <div className="text-xs font-bold text-slate-400 mb-1 uppercase tracking-widest">您的選擇</div>
-                                                <div className={`font-black text-xl ${isCorrect ? 'text-emerald-600' : 'text-rose-600'}`}>{formatDisplayLabel(userAns, q.type)}</div>
-                                            </div>
-                                            <div className="bg-white p-5 rounded-2xl border text-center">
-                                                <div className="text-xs font-bold text-slate-400 mb-1 uppercase tracking-widest">正確答案</div>
-                                                <div className="font-black text-xl text-blue-600">{formatDisplayLabel(q.actualAnswer, q.type)}</div>
-                                            </div>
+                                            <div className="bg-white p-5 rounded-2xl border text-center shadow-sm"><div className="text-xs font-bold text-slate-400 mb-1 uppercase tracking-widest">您的選擇</div><div className="font-black text-xl">{formatDisplayLabel(userAns, q.type)}</div></div>
+                                            <div className="bg-white p-5 rounded-2xl border text-center shadow-sm"><div className="text-xs font-bold text-slate-400 mb-1 uppercase tracking-widest">正確答案</div><div className="font-black text-xl text-blue-600">{formatDisplayLabel(q.actualAnswer, q.type)}</div></div>
                                         </div>
                                         <div className="bg-white p-6 rounded-2xl border mb-10 text-slate-700 leading-relaxed shadow-sm">
-                                            <div className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-widest flex items-center gap-2">
-                                                <div className="w-1 h-3 bg-blue-500 rounded-full"></div> 解析說明
-                                            </div>
-                                            <div className="font-medium text-lg">
-                                                {q.actualExplanation ? q.actualExplanation : "本題暫無詳細說明內容。"}
-                                            </div>
+                                            <div className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-widest flex items-center gap-2"><div className="w-1.5 h-3 bg-blue-500 rounded-full"></div> 解析說明</div>
+                                            <div className="font-medium text-lg">{q.actualExplanation || "暫無詳細說明。"}</div>
                                         </div>
-                                        <button onClick={moveToNext} className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black text-xl shadow-xl flex items-center justify-center gap-2 hover:bg-black transition-all">下一題 <Icon name="ArrowRight" /></button>
+                                        <button onClick={moveToNext} className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black text-xl shadow-xl flex items-center justify-center gap-2">下一題 <Icon name="ArrowRight" /></button>
                                     </div>
                                 )}
                             </div>
@@ -481,57 +531,49 @@
             }
 
             if (appState === 'RESULT') {
-                const getScore = (data, offset) => {
-                    if (!data || data.length === 0) return 0;
-                    return data.reduce((acc, q, i) => acc + (checkAnswer(userAnswers[i + offset], q.actualAnswer) ? 1 : 0), 0);
-                };
-
+                const getScore = (data, offset) => data.reduce((acc, q, i) => acc + (checkAnswer(userAnswers[i + offset], q.actualAnswer) ? 1 : 0), 0);
                 let tfS = 0, mcS = 0, total = 0, totalQuestions = 1;
-                if (quizMode === 'MOCK') {
-                    tfS = getScore(mockFullData.current.tf, 0); 
-                    mcS = getScore(mockFullData.current.mc, 50); 
-                    total = tfS + mcS;
-                    totalQuestions = 100;
-                } else {
-                    total = getScore(questions, 0);
-                    totalQuestions = questions.length || 1;
-                }
-
-                const percentage = Math.round((total / totalQuestions) * 100);
+                if (quizMode === 'MOCK') { tfS = getScore(mockFullData.current.tf, 0); mcS = getScore(mockFullData.current.mc, 50); total = tfS + mcS; totalQuestions = 100; }
+                else { total = getScore(questions, 0); totalQuestions = questions.length || 1; }
 
                 return (
                     <div className="min-h-screen flex items-center justify-center p-4">
-                        <div className="max-w-2xl w-full bg-white rounded-[3rem] shadow-2xl p-10 md:p-16 text-center border">
-                            <h1 className="text-4xl font-black mb-10 text-slate-800">測驗結算</h1>
+                        <div className="max-w-2xl w-full bg-white rounded-[3rem] shadow-2xl p-10 md:p-16 text-center border border-slate-100">
+                            <h1 className="text-4xl font-black mb-10 text-slate-800 uppercase tracking-tighter">測驗結算</h1>
                             {quizMode === 'MOCK' ? (
                                 <div className="space-y-6 mb-12">
                                     <div className="grid grid-cols-2 gap-4">
-                                        <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 text-sm font-bold text-slate-400 uppercase tracking-widest">是非: {tfS} / 50</div>
-                                        <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 text-sm font-bold text-slate-400 uppercase tracking-widest">選擇: {mcS} / 50</div>
+                                        <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 text-center shadow-inner">
+                                            <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">是非得分</div>
+                                            <div className="text-3xl font-black text-slate-700">{tfS} <span className="text-sm text-slate-300">/ 50</span></div>
+                                        </div>
+                                        <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 text-center shadow-inner">
+                                            <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">選擇得分</div>
+                                            <div className="text-3xl font-black text-slate-700">{mcS} <span className="text-sm text-slate-300">/ 50</span></div>
+                                        </div>
                                     </div>
-                                    <div className="bg-blue-600 p-10 rounded-[2.5rem] text-white shadow-xl shadow-blue-100">
-                                        <div className="text-sm font-bold opacity-80 mb-2 uppercase tracking-widest">總分 (100)</div>
-                                        <div className="text-6xl font-black">{total}</div>
+                                    <div className="bg-blue-600 p-10 rounded-[2.5rem] text-white shadow-2xl shadow-blue-100">
+                                        <div className="text-sm font-bold opacity-70 mb-2 uppercase tracking-[0.2em]">測驗總成績 (100)</div>
+                                        <div className="text-7xl font-black">{total}</div>
                                     </div>
                                 </div>
                             ) : (
-                                <div className="bg-slate-50 p-10 rounded-3xl mb-12 text-center">
-                                    <div className="text-sm text-slate-400 font-bold mb-2 uppercase tracking-widest">得分: {total} / {totalQuestions}</div>
-                                    <div className="text-6xl font-black text-blue-600">{percentage}%</div>
+                                <div className="bg-slate-50 p-10 rounded-[2.5rem] mb-12 border shadow-inner">
+                                    <div className="text-sm text-slate-400 font-bold mb-2 uppercase tracking-widest">測驗正確率</div>
+                                    <div className="text-6xl font-black text-blue-600">{Math.round((total/totalQuestions)*100)}%</div>
+                                    <div className="text-slate-400 mt-4 font-bold">答對 {total} 題 / 共 {totalQuestions} 題</div>
                                 </div>
                             )}
                             <div className="flex gap-4">
-                                <button onClick={() => setAppState('INIT')} className="flex-1 py-5 bg-slate-900 text-white rounded-2xl font-bold shadow-xl hover:bg-black transition-all">首頁</button>
-                                <button onClick={() => fetchBank(quizMode)} className="flex-1 py-5 bg-slate-100 text-slate-600 rounded-2xl font-bold hover:bg-slate-200 transition-all">重測</button>
+                                <button onClick={() => setAppState('INIT')} className="flex-1 py-5 bg-slate-900 text-white rounded-3xl font-black text-xl shadow-xl">返回首頁</button>
+                                <button onClick={() => fetchBank(quizMode)} className="flex-1 py-5 bg-slate-100 text-slate-600 rounded-3xl font-black text-xl hover:bg-slate-200 transition-all">重新測試</button>
                             </div>
                         </div>
                     </div>
                 );
             }
-
             return null;
         };
-
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
     </script>
