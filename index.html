@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>人本街道概論考古題雲端練習系統 - 專業模擬考版</title>
+    <title>人本街道概論考古題練習系統 - 專業模擬考版</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- React & ReactDOM -->
@@ -50,7 +50,9 @@
                 Timer: <g fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></g>,
                 Database: <ellipse cx="12" cy="5" rx="9" ry="3" />,
                 Trash: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></g>,
-                ArrowRight: <polyline points="12 5 19 12 12 19" />
+                ArrowRight: <polyline points="12 5 19 12 12 19" />,
+                Layers: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></g>,
+                Graduation: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></g>
             };
             return (
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
@@ -186,38 +188,48 @@
                         fetch(MC_SHEET_URL).then(r => r.text())
                     ]);
                     
-                    // 是非題讀取 D 欄 (index 3)
                     const tfData = parseCSV(tfRes).map(q => ({ 
                         ...q, 
                         type: 'TF',
                         actualExplanation: q._rawRow[3] || ""
                     }));
                     
-                    // 選擇題讀取 E 欄 (index 4)
                     const mcData = parseCSV(mcRes).map(q => ({ 
                         ...q, 
                         type: 'MC',
                         actualExplanation: q._rawRow[4] || ""
                     }));
 
-                    if (mode === 'MOCK') {
+                    let selected = [];
+                    if (mode === 'TF_ALL') {
+                        selected = tfData.sort(() => 0.5 - Math.random());
+                    } else if (mode === 'MC_ALL') {
+                        selected = mcData.sort(() => 0.5 - Math.random());
+                    } else if (mode === 'TF_PRACTICE') {
+                        selected = tfData.sort(() => 0.5 - Math.random()).slice(0, 20);
+                    } else if (mode === 'MC_PRACTICE') {
+                        selected = mcData.sort(() => 0.5 - Math.random()).slice(0, 20);
+                    } else if (mode === 'WRONG_PRACTICE') {
+                        selected = [...wrongBank].sort(() => 0.5 - Math.random());
+                    } else if (mode === 'MOCK') {
                         mockFullData.current = {
                             tf: tfData.sort(() => 0.5 - Math.random()).slice(0, 50),
                             mc: mcData.sort(() => 0.5 - Math.random()).slice(0, 50)
                         };
                         setQuizMode('MOCK');
                         startMockPhase('TF');
-                    } else {
-                        let selected = [];
-                        if (mode === 'TF_PRACTICE') selected = tfData.sort(() => 0.5 - Math.random()).slice(0, 20);
-                        else if (mode === 'MC_PRACTICE') selected = mcData.sort(() => 0.5 - Math.random()).slice(0, 20);
-                        else if (mode === 'WRONG_PRACTICE') selected = [...wrongBank].sort(() => 0.5 - Math.random());
-                        
-                        setQuestions(selected);
-                        setCurrentIndex(0); setUserAnswers({}); setCurrentSelection([]); setShowFeedback(false);
-                        setAppState('QUIZ'); setQuizMode(mode);
-                        setTimeLeft(0);
+                        return;
                     }
+
+                    if (selected.length === 0 && mode === 'WRONG_PRACTICE') {
+                        setAppState('INIT');
+                        return;
+                    }
+
+                    setQuestions(selected);
+                    setCurrentIndex(0); setUserAnswers({}); setCurrentSelection([]); setShowFeedback(false);
+                    setAppState('QUIZ'); setQuizMode(mode);
+                    setTimeLeft(0);
                 } catch (e) { setAppState('INIT'); }
             };
 
@@ -297,44 +309,79 @@
 
             if (appState === 'INIT') return (
                 <div className="min-h-screen flex items-center justify-center p-4">
-                    <div className="max-w-xl w-full bg-white rounded-[2.5rem] shadow-2xl p-10 text-center border">
+                    <div className="max-w-2xl w-full bg-white rounded-[2.5rem] shadow-2xl p-8 md:p-12 text-center border">
                         <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-8 shadow-lg shadow-blue-100">
                             <Icon name="BookOpen" className="text-white" />
                         </div>
-                        <h1 className="text-3xl font-black text-slate-800 mb-8">人本街道概論考古題練習</h1>
+                        <h1 className="text-3xl font-black text-slate-800 mb-2">人本街道概論考古題練習</h1>
+                        <p className="text-slate-400 mb-10 text-sm">請選擇您要進行的練習模式</p>
+                        
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
-                            <button onClick={() => fetchBank('TF_PRACTICE')} className="p-6 border-2 border-slate-100 hover:border-blue-500 rounded-3xl transition-all">
-                                <div className="font-bold text-lg">是非題練習</div>
-                                <div className="text-xs text-slate-400">隨機 20 題</div>
+                            {/* 1. 是非題全題庫練習 */}
+                            <button onClick={() => fetchBank('TF_ALL')} className="p-5 border-2 border-slate-100 hover:border-blue-500 rounded-3xl transition-all group">
+                                <Icon name="Layers" className="text-blue-500 mb-2 group-hover:scale-110 transition-transform" />
+                                <div className="font-bold text-slate-700">是非題全題庫練習</div>
+                                <div className="text-xs text-slate-400">完整巡迴，所有題目皆可練習</div>
                             </button>
-                            <button onClick={() => fetchBank('MC_PRACTICE')} className="p-6 border-2 border-slate-100 hover:border-blue-500 rounded-3xl transition-all">
-                                <div className="font-bold text-lg">選擇題練習</div>
-                                <div className="text-xs text-slate-400">隨機 20 題</div>
+
+                            {/* 2. 選擇題全題庫練習 */}
+                            <button onClick={() => fetchBank('MC_ALL')} className="p-5 border-2 border-slate-100 hover:border-blue-500 rounded-3xl transition-all group">
+                                <Icon name="Layers" className="text-emerald-500 mb-2 group-hover:scale-110 transition-transform" />
+                                <div className="font-bold text-slate-700">選擇題全題庫練習</div>
+                                <div className="text-xs text-slate-400">完整巡迴，不漏掉任何細節</div>
                             </button>
-                            <div className="relative group">
+
+                            {/* 3. 是非題隨堂測驗 */}
+                            <button onClick={() => fetchBank('TF_PRACTICE')} className="p-5 border-2 border-slate-100 hover:border-blue-500 rounded-3xl transition-all group">
+                                <Icon name="CheckCircle" className="text-blue-600 mb-2 group-hover:scale-110 transition-transform" />
+                                <div className="font-bold text-slate-700">是非題隨堂測驗</div>
+                                <div className="text-xs text-slate-400">隨機 20 題練習</div>
+                            </button>
+
+                            {/* 4. 選擇題隨堂測驗 */}
+                            <button onClick={() => fetchBank('MC_PRACTICE')} className="p-5 border-2 border-slate-100 hover:border-blue-500 rounded-3xl transition-all group">
+                                <Icon name="Graduation" className="text-indigo-600 mb-2 group-hover:scale-110 transition-transform" />
+                                <div className="font-bold text-slate-700">選擇題隨堂測驗</div>
+                                <div className="text-xs text-slate-400">隨機 20 題練習</div>
+                            </button>
+
+                            {/* 5. 全真模擬試題 */}
+                            <button onClick={() => fetchBank('MOCK')} className="p-5 bg-slate-900 text-white rounded-3xl hover:bg-black transition-all shadow-xl md:col-span-2 flex items-center justify-between">
+                                <div className="text-left">
+                                    <div className="font-black text-lg">全真模擬試題</div>
+                                    <div className="text-xs text-blue-300">是非/選擇各50題，限時各50分鐘，每題1分</div>
+                                </div>
+                                <Icon name="Database" className="text-blue-400 w-8 h-8" />
+                            </button>
+
+                            {/* 6. 錯題強化練習 */}
+                            <div className="relative group md:col-span-2">
                                 <button 
                                     disabled={wrongBank.length === 0} 
                                     onClick={() => fetchBank('WRONG_PRACTICE')} 
-                                    className={`w-full h-full p-6 border-2 rounded-3xl transition-all ${wrongBank.length > 0 ? 'bg-rose-50 border-rose-100 hover:border-rose-400' : 'opacity-40'}`}
+                                    className={`w-full h-full p-6 border-2 rounded-3xl transition-all ${wrongBank.length > 0 ? 'bg-rose-50 border-rose-100 hover:border-rose-400' : 'bg-slate-50 border-slate-100 opacity-40'}`}
                                 >
-                                    <div className="font-bold">錯題強化練習</div>
-                                    <div className="text-xs text-slate-400">累積 {wrongBank.length} 題</div>
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2 bg-rose-500 rounded-xl text-white">
+                                            <Icon name="XCircle" className="w-5 h-5" />
+                                        </div>
+                                        <div className="text-left">
+                                            <div className="font-black text-slate-800">錯題強化練習</div>
+                                            <div className="text-xs text-rose-400 font-bold">目前累積 {wrongBank.length} 題</div>
+                                        </div>
+                                    </div>
                                 </button>
                                 {wrongBank.length > 0 && (
                                     <button 
                                         onClick={handleClearWrongBank}
                                         disabled={isClearing}
                                         title="清空錯題本"
-                                        className="absolute top-2 right-2 p-2 text-rose-300 hover:text-rose-600 transition-colors"
+                                        className="absolute top-1/2 -translate-y-1/2 right-6 p-3 text-rose-300 hover:text-rose-600 transition-colors"
                                     >
-                                        <Icon name="Trash" className="w-5 h-5" />
+                                        <Icon name="Trash" className="w-6 h-6" />
                                     </button>
                                 )}
                             </div>
-                            <button onClick={() => fetchBank('MOCK')} className="p-6 bg-slate-900 text-white rounded-3xl hover:bg-black transition-all shadow-xl">
-                                <div className="font-bold">全真模擬考題</div>
-                                <div className="text-xs text-blue-300">各 50 題 / 50 分鐘</div>
-                            </button>
                         </div>
                     </div>
                 </div>
@@ -416,8 +463,6 @@
                                                 <div className="font-black text-xl text-blue-600">{formatDisplayLabel(q.actualAnswer, q.type)}</div>
                                             </div>
                                         </div>
-                                        
-                                        {/* 解析說明區塊 */}
                                         <div className="bg-white p-6 rounded-2xl border mb-10 text-slate-700 leading-relaxed shadow-sm">
                                             <div className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-widest flex items-center gap-2">
                                                 <div className="w-1 h-3 bg-blue-500 rounded-full"></div> 解析說明
@@ -426,7 +471,6 @@
                                                 {q.actualExplanation ? q.actualExplanation : "本題暫無詳細說明內容。"}
                                             </div>
                                         </div>
-
                                         <button onClick={moveToNext} className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black text-xl shadow-xl flex items-center justify-center gap-2 hover:bg-black transition-all">下一題 <Icon name="ArrowRight" /></button>
                                     </div>
                                 )}
