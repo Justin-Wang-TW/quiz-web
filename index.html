@@ -72,6 +72,8 @@
                 ArrowRight: <polyline points="12 5 19 12 12 19" />,
                 Layers: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></g>,
                 Graduation: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></g>,
+                ChevronLeft: <polyline points="15 18 9 12 15 6" />,
+                ChevronRight: <polyline points="9 18 15 12 9 6" />,
                 Trophy: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h2"/><path d="M18 7h2a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-2"/><path d="M12 22V18"/><path d="M12 18H6"/><path d="M18 18h-6"/></g>,
                 Lock: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></g>,
                 NavLeft: <polyline points="18 4 8 12 18 20" />,
@@ -92,7 +94,6 @@
             let level = null;
             const claimKey = (lvlId) => `${mode}_${lvlId}`;
             level = [...ACHIEVEMENT_LEVELS].find(l => claims[claimKey(l.id)]);
-            
             if (!level) return null;
             const prefix = MODE_NAMES[mode] || "";
             return (
@@ -132,16 +133,13 @@
             useEffect(() => {
                 if (!user) return;
                 const unsubStats = onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'modeStats'), (s) => {
-                    const d = {}; 
-                    s.docs.forEach(doc => {
-                        if (doc.id === 'MOCK_DATA' || doc.id === 'TF_PRACTICE_DATA' || doc.id === 'MC_PRACTICE_DATA') {
+                    const d = {}; s.docs.forEach(doc => {
+                        if (['MOCK_DATA', 'TF_PRACTICE_DATA', 'MC_PRACTICE_DATA'].includes(doc.id)) {
                             const data = doc.data();
                             d[`${doc.id}_COMPLETIONS`] = data.completions || 0;
                             d[`${doc.id}_FULL_SCORES`] = data.fullScores || 0;
                             d[`${doc.id}_HAS_FULL`] = data.hasFullScore || (data.fullScores > 0);
-                        } else {
-                            d[doc.id] = doc.data().count || 0;
-                        }
+                        } else d[doc.id] = doc.data().count || 0;
                     });
                     setStats(d);
                 });
@@ -161,17 +159,9 @@
                 return () => clearInterval(timerRef.current);
             }, [appState, quizMode, timeLeft]);
 
-            // 當前題目回答後的成就檢查（全題庫即時反饋）
-            const checkLiveAchievement = (newTotalCount) => {
-                if (!quizMode || !quizMode.includes('ALL')) return;
-                const prevCount = stats[quizMode] || 0;
-                const unlocked = ACHIEVEMENT_LEVELS.find(lvl => lvl.id !== 'level5' && lvl.id !== 'level4' && newTotalCount >= lvl.threshold && prevCount < lvl.threshold);
-                if (unlocked) triggerCelebration(unlocked);
-            };
-
             const triggerCelebration = (lvl) => {
                 setNewAchievement({ ...lvl, modeName: MODE_NAMES[quizMode] });
-                const end = Date.now() + (3 * 1000);
+                const end = Date.now() + (3000);
                 const colors = ['#ff0000', '#ffa500', '#ffff00', '#008000', '#0000ff', '#4b0082', '#ee82ee'];
                 (function frame() {
                     confetti({ particleCount: 5, angle: 60, spread: 60, origin: { x: 0 }, colors: colors });
@@ -200,8 +190,10 @@
                         const isCorrect = checkAnswer(key, q.actualAnswer);
                         syncWrongQuestion(q, isCorrect);
                         if (quizMode.includes('ALL')) {
-                            const newCount = (stats[quizMode] || 0) + 1;
-                            checkLiveAchievement(newCount);
+                            const currentCount = (stats[quizMode] || 0) + 1;
+                            // 即時解鎖偵測
+                            const unlocked = ACHIEVEMENT_LEVELS.find(lvl => lvl.id !== 'level5' && lvl.id !== 'level4' && currentCount >= lvl.threshold && (stats[quizMode] || 0) < lvl.threshold);
+                            if (unlocked) triggerCelebration(unlocked);
                             setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'modeStats', quizMode), { count: increment(1) }, { merge: true });
                         }
                     }
@@ -217,8 +209,9 @@
                     const isCorrect = checkAnswer(finalAns, questions[currentIndex].actualAnswer);
                     syncWrongQuestion(questions[currentIndex], isCorrect);
                     if (quizMode.includes('ALL')) {
-                        const newCount = (stats[quizMode] || 0) + 1;
-                        checkLiveAchievement(newCount);
+                        const currentCount = (stats[quizMode] || 0) + 1;
+                        const unlocked = ACHIEVEMENT_LEVELS.find(lvl => lvl.id !== 'level5' && lvl.id !== 'level4' && currentCount >= lvl.threshold && (stats[quizMode] || 0) < lvl.threshold);
+                        if (unlocked) triggerCelebration(unlocked);
                         setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'modeStats', quizMode), { count: increment(1) }, { merge: true });
                     }
                 } else { setCurrentSelection([]); }
@@ -228,35 +221,23 @@
                 if (appState === 'RESULT' && user && quizMode) {
                     const score = questions.reduce((acc, q, i) => acc + (checkAnswer(userAnswers[i], q.actualAnswer) ? 1 : 0), 0);
                     const isFullScore = score === questions.length;
-
                     if (quizMode === 'MOCK') {
                         const prevComp = stats['MOCK_DATA_COMPLETIONS'] || 0;
                         const unlocked = ACHIEVEMENT_LEVELS.find(lvl => lvl.id !== 'level5' && (prevComp + 1) >= lvl.mockThreshold && prevComp < lvl.mockThreshold);
                         if (unlocked || (isFullScore && !stats['MOCK_DATA_HAS_FULL'])) triggerCelebration(unlocked || ACHIEVEMENT_LEVELS[0]);
                         setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'modeStats', 'MOCK_DATA'), { completions: increment(1), hasFullScore: stats['MOCK_DATA_HAS_FULL'] || isFullScore }, { merge: true });
-                        mockFullData.current.tf.forEach((q, i) => { if (userAnswers[i]) syncWrongQuestion(q, checkAnswer(userAnswers[i], q.actualAnswer)); });
-                        mockFullData.current.mc.forEach((q, i) => { if (userAnswers[i+50]) syncWrongQuestion(q, checkAnswer(userAnswers[i+50], q.actualAnswer)); });
-                    } 
-                    else if (quizMode.includes('PRACTICE')) {
-                        const dataKey = `${quizMode}_DATA`;
-                        const prevComp = stats[`${dataKey}_COMPLETIONS`] || 0;
-                        const prevFull = stats[`${dataKey}_FULL_SCORES`] || 0;
-                        
-                        // 隨堂測驗成就檢查
+                    } else if (quizMode.includes('PRACTICE')) {
+                        const dKey = `${quizMode}_DATA`;
+                        const prevComp = stats[`${dKey}_COMPLETIONS`] || 0;
+                        const prevFull = stats[`${dKey}_FULL_SCORES`] || 0;
                         let unlocked = null;
                         if (isFullScore) {
-                            if (prevFull + 1 === 2) unlocked = ACHIEVEMENT_LEVELS[0]; // 五階
-                            else if (prevFull + 1 === 1) unlocked = ACHIEVEMENT_LEVELS[1]; // 四階
+                            if (prevFull + 1 === 2) unlocked = ACHIEVEMENT_LEVELS[0];
+                            else if (prevFull + 1 === 1) unlocked = ACHIEVEMENT_LEVELS[1];
                         }
-                        if (!unlocked) {
-                            unlocked = ACHIEVEMENT_LEVELS.find(lvl => lvl.quizComp > 0 && lvl.quizFull === 0 && (prevComp + 1) >= lvl.quizComp && prevComp < lvl.quizComp);
-                        }
+                        if (!unlocked) unlocked = ACHIEVEMENT_LEVELS.find(lvl => lvl.quizComp > 0 && lvl.quizFull === 0 && (prevComp + 1) >= lvl.quizComp && prevComp < lvl.quizComp);
                         if (unlocked) triggerCelebration(unlocked);
-
-                        setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'modeStats', dataKey), { 
-                            completions: increment(1), 
-                            fullScores: isFullScore ? increment(1) : increment(0) 
-                        }, { merge: true });
+                        setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'modeStats', dKey), { completions: increment(1), fullScores: isFullScore ? increment(1) : increment(0) }, { merge: true });
                     }
                 }
             }, [appState]);
@@ -266,6 +247,28 @@
             const checkAnswer = (u, c) => { if (!u) return false; const norm = s => s.split(',').map(i => normalizeTF(i)).sort().join(','); return norm(u) === norm(c); };
             const normalizeTF = v => { const s = v?.toString().toUpperCase().trim(); if (['O','A','1','T','正確','TRUE','○','◯','✅','是'].includes(s)) return 'O'; if (['X','B','2','F','錯誤','FALSE','✕','✖','❌','否'].includes(s)) return 'X'; return s; };
             
+            const parseCSV = text => { 
+                const res = []; let row = [], field = '', inQ = false; 
+                for(let i=0; i<text.length; i++){ 
+                    const c = text[i]; 
+                    if(inQ){ if(c==='"' && text[i+1]==='"'){ field+='"'; i++; } else if(c==='"') inQ=false; else field+=c; } 
+                    else { if(c==='"') inQ=true; else if(c===','){ row.push(field.trim()); field=''; } else if(c==='\n'||c==='\r'){ row.push(field.trim()); if(row.some(f=>f!=='')) res.push(row); row=[]; field=''; if(c==='\r'&&text[i+1]==='\n') i++; } else field+=c; } 
+                } 
+                if(row.length>0||field!==''){ row.push(field.trim()); res.push(row); } 
+                const h = res[0].map(s=>s.trim()); 
+                return res.slice(1).map(r=>{ 
+                    const o={_rawRow:r}; 
+                    h.forEach((k,i)=>o[k]=r[i]||""); 
+                    // 強化映射：若標題名稱失敗則使用順序
+                    o.actualTitle = o['題目'] || r[0] || "題目讀取失敗";
+                    o.actualAnswer = o['正解'] || o['答案'] || r[2]; 
+                    o.rawOptions = o['選項'] || r[1] || "";
+                    // 針對是非題調整：若為是非題模式，B欄直接就是答案
+                    if (r.length < 5) o.actualAnswer = o['正解'] || o['答案'] || r[1];
+                    return o; 
+                }); 
+            };
+
             const fetchBank = async (mode, start = 0) => {
                 setAppState('LOADING');
                 try {
@@ -283,20 +286,22 @@
             };
 
             const startMockPhase = phase => { setMockStage(phase); setQuestions(phase === 'TF' ? mockFullData.current.tf : mockFullData.current.mc); setCurrentIndex(0); setTimeLeft(50 * 60); setAppState('QUIZ'); };
-            const parseCSV = text => { const res = []; let row = [], field = '', inQ = false; for(let i=0; i<text.length; i++){ const c = text[i]; if(inQ){ if(c==='"' && text[i+1]==='"'){ field+='"'; i++; } else if(c==='"') inQ=false; else field+=c; } else { if(c==='"') inQ=true; else if(c===','){ row.push(field.trim()); field=''; } else if(c==='\n'||c==='\r'){ row.push(field.trim()); if(row.some(f=>f!=='')) res.push(row); row=[]; field=''; if(c==='\r'&&text[i+1]==='\n') i++; } else field+=c; } } if(row.length>0||field!==''){ row.push(field.trim()); res.push(row); } const h = res[0].map(s=>s.trim()); return res.slice(1).map(r=>{ const o={_rawRow:r}; h.forEach((k,i)=>o[k]=r[i]||""); o.actualTitle=o['題目']||""; o.actualAnswer=o['正解']||o['答案']||""; o.rawOptions=o['選項']||""; return o; }); };
             const saveBookmark = async (m, i) => { if (!user || !m.includes('ALL')) return; await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'fullBankProgress', m), { lastIndex: i, timestamp: Date.now() }); };
             const getBookmark = async m => { if (!user) return 0; const s = await getDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'fullBankProgress', m)); return s.exists() ? s.data().lastIndex : 0; };
-            const handleAllBankMode = async m => { const idx = await getBookmark(m); if(idx > 0) fetchBank(m, idx); else fetchBank(m, 0); };
-            
+            const handleAllBankMode = async m => { const idx = await getBookmark(m); if(idx > 0) setResumePrompt({mode:m, savedIndex:idx}); else fetchBank(m, 0); };
+            const moveToNext = () => { const nextIdx = currentIndex + 1; setShowFeedback(false); if (nextIdx < questions.length) { setCurrentIndex(nextIdx); setCurrentSelection([]); if (quizMode.includes('ALL')) saveBookmark(quizMode, nextIdx); } else { if (quizMode === 'MOCK' && mockStage === 'TF') startMockPhase('MC'); else setAppState('RESULT'); } };
+            const moveToPrev = () => { if (currentIndex > 0) { setShowFeedback(false); setCurrentIndex(currentIndex - 1); setCurrentSelection([]); } };
+            const formatDisplayLabel = (v, t) => { if (!v) return "未填答"; if (t === 'TF') { const n = normalizeTF(v); return n === 'O' ? '正確' : (n === 'X' ? '錯誤' : v); } return v; };
+
             const AchievementsWall = () => (
                 <div className="min-h-screen p-4 md:p-8 flex items-center justify-center animate-in fade-in zoom-in duration-300">
                     <div className="max-w-4xl w-full bg-white rounded-[3rem] shadow-2xl p-8 md:p-12 border relative flex flex-col">
                         {achievementTip && (
                             <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-[2px]" onClick={() => setAchievementTip(null)}>
-                                <div className="max-w-xs w-full bg-white rounded-3xl p-8 shadow-2xl text-center border-2 border-blue-100" onClick={e => e.stopPropagation()}>
+                                <div className="max-w-xs w-full bg-white rounded-3xl p-8 shadow-2xl text-center border-2 border-blue-100 animate-in zoom-in" onClick={e => e.stopPropagation()}>
                                     <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-6"><Icon name="Info" className="w-8 h-8" /></div>
                                     <h3 className="text-xl font-black text-slate-800 mb-2">達成條件</h3>
-                                    <p className="text-slate-500 font-bold mb-8">{achievementTip}</p>
+                                    <p className="text-slate-500 font-bold mb-8 leading-relaxed">{achievementTip}</p>
                                     <button onClick={() => setAchievementTip(null)} className="w-full py-3 bg-blue-600 text-white rounded-xl font-black shadow-lg">知道了！</button>
                                 </div>
                             </div>
@@ -320,7 +325,6 @@
                                             const isClaimed = claims[claimKey];
                                             let canClaim = false;
                                             let tip = "";
-
                                             if (m === 'MOCK') {
                                                 if (lvl.id === 'level5') { canClaim = stats['MOCK_DATA_HAS_FULL'] || false; tip = "需模擬考滿分獎"; }
                                                 else { canClaim = (stats['MOCK_DATA_COMPLETIONS'] || 0) >= lvl.mockThreshold; tip = `需完成模擬考 ${lvl.mockThreshold} 次`; }
@@ -333,16 +337,10 @@
                                                 canClaim = lvl.id !== 'level5' && lvl.id !== 'level4' && (stats[m] || 0) >= lvl.threshold;
                                                 tip = `需累計練習 ${lvl.threshold} 題`;
                                             }
-
                                             return (
-                                                <div 
-                                                    key={lvl.id} 
-                                                    onClick={() => isClaimed ? null : (canClaim ? claimAchievement(m, lvl) : setAchievementTip(`${label}${lvl.name}：${tip}`))}
-                                                    className={`flex flex-col items-center p-3 rounded-2xl border-2 transition-all cursor-pointer ${isClaimed ? 'border-blue-100 bg-white shadow-sm' : (canClaim ? 'border-yellow-400 bg-yellow-50 animate-pulse scale-105' : 'border-slate-50 opacity-20 grayscale')}`}
-                                                >
-                                                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-2 ${isClaimed ? lvl.style : (canClaim ? 'bg-yellow-400 text-white shadow-md' : 'bg-slate-200')}`}>
-                                                        <Icon name={isClaimed ? "Trophy" : "Lock"} className="w-5 h-5" />
-                                                    </div>
+                                                <div key={lvl.id} onClick={() => isClaimed ? null : (canClaim ? claimAchievement(m, lvl) : setAchievementTip(`${label}${lvl.name}：${tip}`))}
+                                                    className={`flex flex-col items-center p-3 rounded-2xl border-2 transition-all cursor-pointer ${isClaimed ? 'border-blue-100 bg-white shadow-sm' : (canClaim ? 'border-yellow-400 bg-yellow-50 animate-pulse scale-105' : 'border-slate-50 opacity-20 grayscale')}`}>
+                                                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-2 ${isClaimed ? lvl.style : (canClaim ? 'bg-yellow-400 text-white shadow-md' : 'bg-slate-200')}`}><Icon name={isClaimed ? "Trophy" : "Lock"} className="w-5 h-5" /></div>
                                                     <div className="text-[8px] font-black text-center leading-tight">{lvl.name}</div>
                                                     {canClaim && !isClaimed && <div className="mt-1 text-[7px] font-black text-yellow-600 animate-bounce">領取</div>}
                                                 </div>
@@ -352,7 +350,7 @@
                                 </div>
                             ))}
                         </div>
-                        <div className="mt-8 pt-8 border-t border-slate-100"><button onClick={() => setAppState('INIT')} className="w-full py-5 bg-slate-900 text-white rounded-[2rem] font-black text-xl shadow-xl hover:bg-black transition-all flex items-center justify-center gap-3"><Icon name="Home" className="w-6 h-6 text-blue-400" />返回系統首頁</button></div>
+                        <div className="mt-8 pt-8 border-t border-slate-100"><button onClick={() => setAppState('INIT')} className="w-full py-5 bg-slate-900 text-white rounded-[2rem] font-black text-xl shadow-xl hover:bg-black transition-all flex items-center justify-center gap-3 font-bold"><Icon name="Home" className="w-6 h-6 text-blue-400" />返回系統首頁</button></div>
                     </div>
                 </div>
             );
@@ -364,10 +362,7 @@
                     {newAchievement && (
                         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-500 font-bold" onClick={() => setNewAchievement(null)}>
                             <div className="max-w-sm w-full bg-white rounded-[3rem] p-10 text-center shadow-2xl animate-in zoom-in slide-in-from-bottom-8 duration-500" onClick={e => e.stopPropagation()}>
-                                <div className="w-24 h-24 rounded-3xl mx-auto mb-8 flex items-center justify-center relative bg-yellow-50">
-                                    <div className={`w-20 h-20 rounded-2xl flex items-center justify-center z-10 ${newAchievement.style}`}><Icon name="Trophy" className="w-10 h-10" /></div>
-                                    <div className="absolute inset-0 bg-yellow-400 rounded-3xl animate-ping opacity-20"></div>
-                                </div>
+                                <div className="w-24 h-24 rounded-3xl mx-auto mb-8 flex items-center justify-center relative bg-yellow-50"><div className={`w-20 h-20 rounded-2xl flex items-center justify-center z-10 ${newAchievement.style}`}><Icon name="Trophy" className="w-10 h-10" /></div><div className="absolute inset-0 bg-yellow-400 rounded-3xl animate-ping opacity-20"></div></div>
                                 <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-blue-50 text-blue-600 rounded-full text-xs font-black tracking-widest mb-4"><Icon name="Sparkles" className="w-3.5 h-3.5" /> Achievement Unlocked</div>
                                 <h2 className="text-2xl font-black text-slate-800 mb-2">{newAchievement.modeName}</h2>
                                 <h3 className="text-3xl font-black text-blue-600 mb-6">{newAchievement.name}</h3>
@@ -380,7 +375,7 @@
                     {appState === 'INIT' ? (
                         <div className="max-w-2xl w-full bg-white rounded-[2.5rem] shadow-2xl p-8 md:p-12 text-center border relative overflow-hidden">
                             <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-blue-100"><Icon name="BookOpen" className="text-white" /></div>
-                            <h1 className="text-3xl font-black text-slate-800 mb-2 uppercase tracking-tighter">人本街道考古題練習</h1>
+                            <h1 className="text-3xl font-black text-slate-800 mb-2 uppercase tracking-tighter font-bold">人本街道考古題練習</h1>
                             <button onClick={() => setAppState('ACHIEVEMENTS')} className="inline-flex items-center gap-2 px-6 py-2 bg-yellow-50 hover:bg-yellow-100 text-yellow-600 rounded-full transition-all border border-yellow-100 mb-10 group shadow-sm font-black text-sm uppercase tracking-widest">
                                 <Icon name="Trophy" className="w-4 h-4 group-hover:rotate-12 transition-transform" />查看成就獎章牆
                             </button>
@@ -388,7 +383,7 @@
                                 {Object.entries(MODE_NAMES).map(([m, label]) => (
                                     <button key={m} onClick={() => m.includes('ALL') ? handleAllBankMode(m) : fetchBank(m)} className={`p-5 border-2 border-slate-100 hover:border-blue-500 rounded-3xl transition-all flex items-start gap-4 ${m==='MOCK'?'md:col-span-2 bg-slate-50':''}`}>
                                         <div className={`p-2 rounded-xl ${m==='TF_ALL'?'bg-blue-50 text-blue-500':m==='MC_ALL'?'bg-emerald-50 text-emerald-500':'bg-blue-50 text-blue-600'}`}><Icon name={m==='MOCK'?'Database':m.includes('TF')?'CheckCircle':m.includes('MC')?'Graduation':'Layers'} /></div>
-                                        <div className="flex-1"><div className="font-bold text-slate-700 text-sm">{label}</div><div className="text-[10px] text-slate-400 font-medium uppercase font-bold">{m==='MOCK'?'50/50 實戰測驗':m.includes('ALL')?'1-280 循序':'隨機 20 題'}</div><Badge mode={m} stats={stats} claims={claims} /></div>
+                                        <div className="flex-1"><div className="font-bold text-slate-700 text-sm font-bold">{label}</div><div className="text-[10px] text-slate-400 font-medium uppercase font-bold">{m==='MOCK'?'50/50 實戰測驗':m.includes('ALL')?'1-280 循序':'隨機 20 題'}</div><Badge mode={m} stats={stats} claims={claims} /></div>
                                     </button>
                                 ))}
                                 <button disabled={wrongBank.length===0} onClick={()=>fetchBank('WRONG_PRACTICE')} className={`w-full p-6 border-2 rounded-3xl transition-all md:col-span-2 ${wrongBank.length>0?'bg-rose-50 border-rose-100 hover:border-rose-400':'bg-slate-50 border-slate-100 opacity-40'}`}><div className="flex items-center gap-3"><div className="w-12 h-12 bg-rose-500 rounded-2xl text-white flex items-center justify-center"><Icon name="XCircle" className="w-7 h-7" /></div><div className="text-left"><div className="font-black text-slate-800 text-lg font-bold">錯題強化練習</div><div className="text-xs text-rose-400 font-bold uppercase tracking-wider font-bold">目前累積 {wrongBank.length} 題</div></div></div></button>
@@ -397,42 +392,37 @@
                     ) : appState === 'QUIZ' ? (
                         <div className="max-w-4xl w-full">
                             <div className="flex justify-between items-center mb-6 px-4">
-                                <div className="flex gap-2">
-                                    <span className="px-4 py-2 bg-blue-600 text-white rounded-full font-bold shadow-sm text-sm">第 {currentIndex + 1} 題</span>
-                                    <span className="px-4 py-2 bg-white text-slate-500 border rounded-full font-bold text-sm uppercase tracking-widest">{quizMode==='MOCK'?(mockStage==='TF'?'模擬考：是非':'模擬考：選擇'):'練習模式'}</span>
-                                </div>
-                                <button onClick={() => setAppState('INIT')} className="flex items-center gap-2 px-4 py-2 bg-white text-blue-600 rounded-full font-black text-xs shadow-sm border border-blue-50 hover:bg-blue-50 transition-all group font-bold">
-                                    <Icon name="LogOut" className="w-3.5 h-3.5 group-hover:-translate-x-1 transition-transform" />儲存進度並回首頁
-                                </button>
+                                <div className="flex gap-2"><span className="px-4 py-2 bg-blue-600 text-white rounded-full font-bold shadow-sm text-sm font-bold">第 {currentIndex + 1} 題</span><span className="px-4 py-2 bg-white text-slate-500 border rounded-full font-bold text-sm uppercase tracking-widest font-bold">{quizMode==='MOCK'?(mockStage==='TF'?'模擬考：是非':'模擬考：選擇'):'練習模式'}</span></div>
+                                <button onClick={() => setAppState('INIT')} className="flex items-center gap-2 px-4 py-2 bg-white text-blue-600 rounded-full font-black text-xs shadow-sm border border-blue-50 hover:bg-blue-50 transition-all group font-bold font-bold"><Icon name="LogOut" className="w-3.5 h-3.5 group-hover:-translate-x-1 transition-transform" />儲存進度並回首頁</button>
                             </div>
                             <div className="flex items-center justify-center gap-2 md:gap-6">
                                 <button onClick={moveToPrev} disabled={currentIndex===0} className="p-3 md:p-6 text-slate-300 hover:text-slate-600 transition-all disabled:opacity-0"><Icon name="NavLeft" className="w-10 h-10 md:w-16 md:h-16" /></button>
                                 <div className="bg-white rounded-[2rem] shadow-xl overflow-hidden border border-slate-100 flex-1">
                                     <div className="p-8 md:p-12">
-                                        <h2 className="text-2xl font-bold text-slate-800 mb-10 leading-relaxed min-h-[4rem]">{questions[currentIndex].actualTitle}</h2>
+                                        <h2 className="text-2xl font-bold text-slate-800 mb-10 leading-relaxed min-h-[4rem]">{questions[currentIndex]?.actualTitle}</h2>
                                         <div className="space-y-4">
-                                            {(questions[currentIndex].type === 'TF' ? [{key:'O', val:'正確 (O)'}, {key:'X', val:'錯誤 (X)'}] : (() => { const m = [...questions[currentIndex].rawOptions.matchAll(/([A-E])[.、\s]+(.*?)(?=\s*[A-E][...]|$)/g)]; return m.length > 0 ? m.map(x => ({ key: x[1], val: x[2].trim() })) : questions[currentIndex].rawOptions.split(/\s+/).filter(s=>s).map((s,i)=>({key:String.fromCharCode(65+i), val:s})); })()).map(opt => {
+                                            {(questions[currentIndex]?.type === 'TF' ? [{key:'O', val:'正確 (O)'}, {key:'X', val:'錯誤 (X)'}] : (() => { const raw = questions[currentIndex]?.rawOptions || ""; const m = [...raw.matchAll(/([A-E])[.、\s]+(.*?)(?=\s*[A-E][.、\s]|$)/g)]; return m.length > 0 ? m.map(x => ({ key: x[1], val: x[2].trim() })) : raw.split(/\s+/).filter(s=>s).map((s,i)=>({key:String.fromCharCode(65+i), val:s})); })()).map(opt => {
                                                 const ansKey = currentIndex + (quizMode === 'MOCK' && mockStage === 'MC' ? 50 : 0);
                                                 const checked = userAnswers[ansKey]?.split(',').includes(opt.key) || userAnswers[ansKey] === opt.key;
-                                                const isCorrect = questions[currentIndex].actualAnswer.split(',').map(s=>normalizeTF(s.trim())).includes(normalizeTF(opt.key));
+                                                const isCorrect = questions[currentIndex]?.actualAnswer.split(',').map(s=>normalizeTF(s.trim())).includes(normalizeTF(opt.key));
                                                 let style = "w-full p-5 rounded-2xl border-2 text-left transition-all flex items-center gap-5 ";
                                                 if (!showFeedback) style += checked ? "border-blue-600 bg-blue-50 text-blue-700 shadow-sm" : "border-slate-50 hover:border-slate-200 text-slate-600";
                                                 else style += isCorrect ? "border-emerald-500 bg-emerald-50 text-emerald-800" : (checked ? "border-rose-500 bg-rose-50 text-rose-800" : "opacity-40");
-                                                return (<button key={opt.key} onClick={() => handleOptionClick(opt.key)} disabled={showFeedback} className={style}>{questions[currentIndex].type !== 'TF' && <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black ${checked ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}`}>{opt.key}</div>}{questions[currentIndex].type === 'TF' && checked && <Icon name={showFeedback && !isCorrect ? "XCircle" : "CheckCircle"} className={`w-8 h-8 shrink-0 ${showFeedback ? (isCorrect ? 'text-emerald-600' : 'text-rose-600') : 'text-blue-600'}`} />}<span className="text-lg font-bold flex-1 font-bold">{opt.val}</span></button>);
+                                                return (<button key={opt.key} onClick={() => handleOptionClick(opt.key)} disabled={showFeedback} className={style}>{questions[currentIndex]?.type !== 'TF' && <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black ${checked ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}`}>{opt.key}</div>}{questions[currentIndex]?.type === 'TF' && checked && <Icon name={showFeedback && !isCorrect ? "XCircle" : "CheckCircle"} className={`w-8 h-8 shrink-0 ${showFeedback ? (isCorrect ? 'text-emerald-600' : 'text-rose-600') : 'text-blue-600'}`} />}<span className="text-lg font-bold flex-1 font-bold">{opt.val}</span></button>);
                                             })}
                                         </div>
                                         <div className="mt-10 flex flex-col gap-4">
-                                            {(questions[currentIndex].actualTitle.includes("(多選)") || questions[currentIndex].actualAnswer.includes(",")) && !showFeedback && (<button onClick={handleMultiSubmit} className="w-full py-5 bg-blue-600 text-white rounded-2xl font-black text-xl shadow-lg shadow-blue-100 font-bold">確認答案</button>)}
+                                            {(questions[currentIndex]?.actualTitle.includes("(多選)") || questions[currentIndex]?.actualAnswer.includes(",")) && !showFeedback && (<button onClick={handleMultiSubmit} className="w-full py-5 bg-blue-600 text-white rounded-2xl font-black text-xl shadow-lg shadow-blue-100 font-bold">確認答案</button>)}
                                             {quizMode==='MOCK' && currentIndex===49 && (<button onClick={moveToNext} className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black text-xl shadow-xl font-bold">{mockStage==='TF'?'下一步：進入選擇題':'完成交卷'}</button>)}
                                             {!showFeedback && quizMode !== 'MOCK' && (<button onClick={moveToNext} className="text-slate-400 text-sm font-bold underline underline-offset-8 block mx-auto py-4 font-bold">跳過此題</button>)}
                                         </div>
                                     </div>
                                     {showFeedback && (
                                         <div className="bg-slate-50 p-8 md:p-12 border-t-2 border-slate-100 font-bold">
-                                            <div className={`flex items-center gap-3 p-5 rounded-2xl font-black text-xl mb-8 ${checkAnswer(userAnswers[currentIndex], questions[currentIndex].actualAnswer)?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-700'}`}><Icon name={checkAnswer(userAnswers[currentIndex], questions[currentIndex].actualAnswer)?"CheckCircle":"XCircle"} /> {checkAnswer(userAnswers[currentIndex], questions[currentIndex].actualAnswer)?"答對了！":"答錯了..."}</div>
-                                            <div className="grid grid-cols-2 gap-4 mb-8"><div className="bg-white p-5 rounded-2xl border text-center shadow-sm"><div className="text-xs font-bold text-slate-400 mb-1 uppercase tracking-widest uppercase font-bold">您的選擇</div><div className="font-black text-xl">{formatDisplayLabel(userAnswers[currentIndex], questions[currentIndex].type)}</div></div><div className="bg-white p-5 rounded-2xl border text-center shadow-sm"><div className="text-xs font-bold text-slate-400 mb-1 uppercase tracking-widest uppercase font-bold">正確答案</div><div className="font-black text-xl text-blue-600">{formatDisplayLabel(questions[currentIndex].actualAnswer, questions[currentIndex].type)}</div></div></div>
-                                            <div className="bg-white p-6 rounded-2xl border mb-10 text-slate-700 leading-relaxed shadow-sm font-medium"><div className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-widest flex items-center gap-2 font-bold"><div className="w-1.5 h-3 bg-blue-500 rounded-full"></div> 解析說明</div><div className="font-medium text-lg leading-relaxed">{questions[currentIndex].actualExplanation || "暫無詳細說明。"}</div></div>
-                                            <button onClick={moveToNext} className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black text-xl shadow-xl flex items-center justify-center gap-2 hover:bg-black transition-all font-bold">下一題 <Icon name="ArrowRight" /></button>
+                                            <div className={`flex items-center gap-3 p-5 rounded-2xl font-black text-xl mb-8 ${checkAnswer(userAnswers[currentIndex], questions[currentIndex]?.actualAnswer)?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-700'}`}><Icon name={checkAnswer(userAnswers[currentIndex], questions[currentIndex]?.actualAnswer)?"CheckCircle":"XCircle"} /> {checkAnswer(userAnswers[currentIndex], questions[currentIndex]?.actualAnswer)?"答對了！":"答錯了..."}</div>
+                                            <div className="grid grid-cols-2 gap-4 mb-8"><div className="bg-white p-5 rounded-2xl border text-center shadow-sm"><div className="text-xs font-bold text-slate-400 mb-1 uppercase tracking-widest uppercase font-bold">您的選擇</div><div className="font-black text-xl font-bold">{formatDisplayLabel(userAnswers[currentIndex], questions[currentIndex]?.type)}</div></div><div className="bg-white p-5 rounded-2xl border text-center shadow-sm"><div className="text-xs font-bold text-slate-400 mb-1 uppercase tracking-widest uppercase font-bold">正確答案</div><div className="font-black text-xl text-blue-600 font-bold">{formatDisplayLabel(questions[currentIndex]?.actualAnswer, questions[currentIndex]?.type)}</div></div></div>
+                                            <div className="bg-white p-6 rounded-2xl border mb-10 text-slate-700 leading-relaxed shadow-sm font-medium"><div className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-widest flex items-center gap-2 font-bold"><div className="w-1.5 h-3 bg-blue-500 rounded-full"></div> 解析說明</div><div className="font-medium text-lg leading-relaxed">{questions[currentIndex]?.actualExplanation || "暫無詳細說明。"}</div></div>
+                                            <button onClick={moveToNext} className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black text-xl shadow-xl flex items-center justify-center gap-2 hover:bg-black transition-all font-bold font-bold font-bold">下一題 <Icon name="ArrowRight" /></button>
                                         </div>
                                     )}
                                 </div>
@@ -442,20 +432,18 @@
                     ) : appState === 'RESULT' ? (
                         <div className="max-w-2xl w-full bg-white rounded-[3rem] shadow-2xl p-10 md:p-16 text-center border border-slate-100 font-bold">
                             <h1 className="text-4xl font-black mb-10 text-slate-800 uppercase tracking-tighter">測驗結算</h1>
-                            <div className="bg-slate-50 p-10 rounded-[2.5rem] mb-8 border shadow-inner">
-                                <div className="text-sm text-slate-400 mb-2 uppercase tracking-widest font-bold">本次正確率</div>
-                                <div className="text-6xl font-black text-blue-600 font-bold">{Math.round((questions.reduce((acc, q, i) => acc + (checkAnswer(userAnswers[i], q.actualAnswer) ? 1 : 0), 0)/questions.length)*100)}%</div>
-                            </div>
-                            <div className="mb-12">
-                                <div className="text-xs font-bold text-slate-400 uppercase tracking-[0.2em] mb-4 font-bold">累積成就進度</div>
-                                <div className="flex flex-col items-center">
-                                    <Badge mode={quizMode} stats={stats} claims={claims} />
-                                    <div className="text-xs text-slate-400 mt-2 font-bold">{quizMode === 'MOCK' ? `模擬考完成：${stats['MOCK_DATA_COMPLETIONS'] || 0} 次` : quizMode.includes('PRACTICE') ? `隨堂完成：${stats[`${quizMode}_DATA_COMPLETIONS`] || 0} 次` : `已累計：${stats[quizMode] || 0} 題`}</div>
-                                </div>
-                            </div>
-                            <div className="flex gap-4"><button onClick={() => setAppState('INIT')} className="flex-1 py-5 bg-slate-900 text-white rounded-3xl font-black text-xl shadow-xl hover:bg-black font-bold transition-all">返回首頁</button><button onClick={() => fetchBank(quizMode)} className="flex-1 py-5 bg-slate-100 text-slate-600 rounded-3xl font-black text-xl hover:bg-slate-200 font-bold transition-all">重新測試</button></div>
+                            <div className="bg-slate-50 p-10 rounded-[2.5rem] mb-8 border shadow-inner"><div className="text-sm text-slate-400 mb-2 uppercase tracking-widest font-bold">本次正確率</div><div className="text-6xl font-black text-blue-600 font-bold">{Math.round((questions.reduce((acc, q, i) => acc + (checkAnswer(userAnswers[i], q.actualAnswer) ? 1 : 0), 0)/questions.length)*100)}%</div></div>
+                            <div className="mb-12"><div className="text-xs font-bold text-slate-400 uppercase tracking-[0.2em] mb-4 font-bold">累積成就進度</div><div className="flex flex-col items-center"><Badge mode={quizMode} stats={stats} claims={claims} /><div className="text-xs text-slate-400 mt-2 font-bold font-bold">{quizMode === 'MOCK' ? `模擬考完成：${stats['MOCK_DATA_COMPLETIONS'] || 0} 次` : quizMode.includes('PRACTICE') ? `隨堂完成：${stats[`${quizMode}_DATA_COMPLETIONS`] || 0} 次` : `已累計：${stats[quizMode] || 0} 題`}</div></div></div>
+                            <div className="flex gap-4"><button onClick={() => setAppState('INIT')} className="flex-1 py-5 bg-slate-900 text-white rounded-3xl font-black text-xl shadow-xl hover:bg-black font-bold transition-all font-bold">返回首頁</button><button onClick={() => fetchBank(quizMode)} className="flex-1 py-5 bg-slate-100 text-slate-600 rounded-3xl font-black text-xl hover:bg-slate-200 font-bold transition-all font-bold">重新測試</button></div>
                         </div>
                     ) : null}
+                    {resumePrompt && (<div className="fixed inset-0 bg-black/60 z-[120] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-300"><div className="max-w-sm w-full bg-white rounded-[3rem] p-10 text-center shadow-2xl">
+                        <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-6"><Icon name="Bookmark" className="w-10 h-10" /></div>
+                        <h3 className="text-2xl font-black text-slate-800 mb-2 font-bold uppercase tracking-tight">發現上次進度</h3>
+                        <p className="text-slate-500 mb-10 font-bold">要在第 <span className="text-blue-600">{resumePrompt.savedIndex+1}</span> 題繼續嗎？</p>
+                        <div className="flex flex-col gap-3"><button onClick={()=>{fetchBank(resumePrompt.mode, resumePrompt.savedIndex); setResumePrompt(null);}} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg font-bold">從中斷處繼續</button>
+                        <button onClick={()=>{fetchBank(resumePrompt.mode, 0); setResumePrompt(null);}} className="w-full py-4 bg-slate-100 text-slate-500 rounded-2xl font-bold flex items-center justify-center gap-2 font-bold font-bold"><Icon name="Rotate" className="w-4 h-4" /> 重新開始</button></div>
+                    </div></div>)}
                 </div>
             );
         };
