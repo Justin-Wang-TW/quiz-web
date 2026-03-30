@@ -1,454 +1,813 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>人本街道概論考古題練習系統 - 專業成就版</title>
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- React & ReactDOM -->
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <!-- Babel -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- Confetti 慶祝特效庫 -->
-    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>人本街道練習系統</title>
+  
+  <!-- 引入 Tailwind CSS 進行莫蘭迪風格排版 -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- 引入 Babel 讓瀏覽器可以直接看懂 React (JSX) 語法 -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Tailwind 擴充設定 (用於隱藏卷軸) -->
+  <style>
+    .scrollbar-hide::-webkit-scrollbar { display: none; }
+    .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
 </head>
-<body class="bg-slate-50 text-slate-800 font-sans">
-    <div id="root"></div>
+<body class="bg-[#F4F1EB]">
+  
+  <!-- React 應用的掛載點 -->
+  <div id="root"></div>
 
-    <script type="text/babel" data-type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot, getDocs, writeBatch, getDoc, increment } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+  <!-- 我們的核心程式碼 (使用 type="text/babel" 且 data-type="module" 來支援 ES6 Import) -->
+  <script type="text/babel" data-type="module">
+    import React, { useState, useEffect, useRef } from 'https://esm.sh/react@18.2.0';
+    import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
+    
+    // 引入 Firebase 雲端服務 (改用 Google 官方穩定的 CDN)
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js';
+    import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js';
+    import { getFirestore, collection, doc, setDoc, getDoc, updateDoc, deleteDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js';
+    
+    // 引入 Lucide 圖示庫
+    import { BookOpen, CheckSquare, Clock, Trophy, Home, ChevronLeft, ChevronRight, Bookmark, AlertCircle, Play, X, Star, Save, LayoutGrid } from 'https://esm.sh/lucide-react@0.344.0';
 
-        // --- Firebase 配置 ---
-        const firebaseConfig = {
-          apiKey: "AIzaSyCS9aa4aAL7Qw2rPQdnfx-zYgA575YllVw", 
-          authDomain: "quiz-db627.firebaseapp.com",
-          projectId: "quiz-db627",
-          storageBucket: "quiz-db627.firebasestorage.app",
-          messagingSenderId: "613549084178",
-          appId: "1:613549084178:web:5df7a4036aa586a66a92cb"
+    // ==========================================
+    // 1. Firebase 初始化設定 (★ 若在本機執行，請填寫你的金鑰 ★)
+    // ==========================================
+    const fallbackConfig = {
+      apiKey: "AIzaSyCS9aa4aAL7Qw2rPQdnfx-zYgA575YllVw",
+      authDomain: "quiz-db627.firebaseapp.com",
+      projectId: "quiz-db627",
+      storageBucket: "quiz-db627.firebasestorage.app",
+      messagingSenderId: "613549084178",
+      appId: "1:613549084178:web:5df7a4036aa586a66a92cb"
+    };
+    
+    // 自動偵測：若在線上預覽環境，自動套用環境變數；若在你的電腦上，則使用上方的 fallbackConfig
+    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : fallbackConfig;
+    
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const appId = typeof __app_id !== 'undefined' ? __app_id : "street-quiz";
+
+    // ==========================================
+    // 2. 顏色與成就設定檔 (莫蘭迪色系)
+    // ==========================================
+    const COLORS = {
+      bg: '#F4F1EB', cardBg: '#FFFFFF', primary: '#7B929A', secondary: '#9CAE96', 
+      accent: '#C7A38B', textMain: '#4A4A4A', textMuted: '#8A8A8A', border: '#E8E6E1',
+    };
+
+    const ACHIEVEMENT_TIERS = [
+      { id: 't1', name: '初心者', color: 'bg-gray-400', threshold: { full: 50, random: 1, mock: 1 } },
+      { id: 't2', name: '入門者', color: 'bg-green-500', threshold: { full: 100, random: 3, mock: 2 } },
+      { id: 't3', name: '一階小雞蛋', color: 'bg-blue-400', threshold: { full: 150, random: 5, mock: 3 } },
+      { id: 't4', name: '二階半熟蛋', color: 'bg-yellow-500', threshold: { full: 200, random: 7, mock: 4 } },
+      { id: 't5', name: '三階帶殼小雞', color: 'bg-purple-500', threshold: { full: 250, random: 10, mock: 5 } },
+      { id: 't6', name: '四階地走雞', color: 'bg-red-500', threshold: { full: 280, random_perfect: 1, mock: 6 } },
+      { id: 't7', name: '五階咕咕雞', color: 'bg-gradient-to-r from-red-400 via-yellow-400 to-blue-400', threshold: { full: 560, random_perfect: 2, mock_perfect: 1 } },
+    ];
+
+    const PREFIXES = { tf_full: '是非題全題庫', mc_full: '選擇題全題庫', tf_random: '是非題隨堂測驗', mc_random: '選擇題隨堂測驗', mock: '模擬測驗' };
+
+    // ==========================================
+    // 3. 工具函式
+    // ==========================================
+    const parseCSV = (text) => {
+      const result = [];
+      let row = [], inQuotes = false, cell = '';
+      for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        if (inQuotes) {
+          if (char === '"' && text[i + 1] === '"') { cell += '"'; i++; } 
+          else if (char === '"') { inQuotes = false; } 
+          else { cell += char; }
+        } else {
+          if (char === '"') { inQuotes = true; } 
+          else if (char === ',') { row.push(cell.trim()); cell = ''; } 
+          else if (char === '\n' || char === '\r') {
+            row.push(cell.trim()); result.push(row); row = []; cell = '';
+            if (char === '\r' && text[i + 1] === '\n') i++; 
+          } else { cell += char; }
+        }
+      }
+      if (cell || row.length) { row.push(cell.trim()); result.push(row); }
+      return result.filter(r => r.length > 1);
+    };
+
+    const shuffleArray = (array) => {
+      const newArr = [...array];
+      for (let i = newArr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [newArr[i], newArr[j]] = [newArr[j], newArr[i]];
+      }
+      return newArr;
+    };
+
+    // ==========================================
+    // 4. 核心 App 元件
+    // ==========================================
+    function App() {
+      const [user, setUser] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [currentView, setCurrentView] = useState('home');
+      const [modalConfig, setModalConfig] = useState(null);
+      
+      const [tfBank, setTfBank] = useState([]);
+      const [mcBank, setMcBank] = useState([]);
+      
+      const [userProgress, setUserProgress] = useState({ tf_full: 0, mc_full: 0 });
+      const [userStats, setUserStats] = useState({
+        tf_full_answered: 0, mc_full_answered: 0, tf_random_completed: 0, tf_random_perfect: 0,
+        mc_random_completed: 0, mc_random_perfect: 0, mock_completed: 0, mock_perfect: 0
+      });
+      const [mistakes, setMistakes] = useState([]);
+      const [claimedAchievements, setClaimedAchievements] = useState([]);
+
+      const [quizConfig, setQuizConfig] = useState(null);
+      const [showConfetti, setShowConfetti] = useState(false);
+
+      useEffect(() => {
+        const initAuth = async () => {
+          try {
+            // 加入安全驗證，支援預覽環境的自訂金鑰或匿名登入
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+              await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+              await signInAnonymously(auth);
+            }
+          } catch (error) {
+            console.error("Auth error:", error);
+            // 即使認證失敗(例如金鑰尚未填寫)，也強制關閉載入畫面讓使用者看到 UI
+            setLoading(false);
+          }
         };
-        const appId = 'traffic-quiz-app';
+        initAuth();
 
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
+        const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+          setUser(currentUser);
+          if (!currentUser) setLoading(false);
+        });
+        return () => unsubscribeAuth();
+      }, []);
 
-        const TF_SHEET_URL = "https://docs.google.com/spreadsheets/d/1QWJowhf3psJBO5L9qxYdqTXY0I6aHToMD3ySj8cod2U/export?format=csv&gid=297844755";
-        const MC_SHEET_URL = "https://docs.google.com/spreadsheets/d/18Isb8r4Kf_GHbPbCbxWNIPzlQ_qMvBmmvoWOs9bdDeQ/export?format=csv&gid=795659602";
-
-        const { useState, useEffect, useMemo, useRef } = React;
-
-        // 成就等級配置
-        const ACHIEVEMENT_LEVELS = [
-            { id: 'level5', threshold: 560, mockThreshold: 1, quizComp: 2, quizFull: 2, name: "五階咕咕雞", style: "bg-gradient-to-r from-red-500 via-yellow-500 via-green-500 via-blue-500 to-purple-500 text-white border-none shadow-lg shadow-yellow-100", msg: "太強了！登峰造極，你已經是街道規劃的大師級人物！" },
-            { id: 'level4', threshold: 280, mockThreshold: 6, quizComp: 1, quizFull: 1, name: "四階地走雞", style: "bg-rose-500 text-white shadow-md", msg: "非常優秀！實戰經驗豐富，滿分過關實至名歸！" },
-            { id: 'level3', threshold: 250, mockThreshold: 5, quizComp: 10, quizFull: 0, name: "三階帶殼小雞", style: "bg-purple-500 text-white", msg: "突破自我！實力與經驗正在飛速成長中！" },
-            { id: 'level2', threshold: 200, mockThreshold: 4, quizComp: 7, quizFull: 0, name: "二階半熟蛋", style: "bg-yellow-400 text-yellow-900 font-bold", msg: "漸入佳境！離專業之路不遠了！" },
-            { id: 'level1', threshold: 150, mockThreshold: 3, quizComp: 5, quizFull: 0, name: "一階小雞蛋", style: "bg-blue-500 text-white", msg: "持續努力！你已經超越了大多數練習者！" },
-            { id: 'entry', threshold: 100, mockThreshold: 2, quizComp: 3, quizFull: 0, name: "入門者", style: "bg-emerald-500 text-white", msg: "恭喜晉級！對交通法規已有初步掌握！" },
-            { id: 'beginner', threshold: 50, mockThreshold: 1, quizComp: 1, quizFull: 0, name: "初心者", style: "bg-slate-400 text-white", msg: "踏出成功的第一步！繼續保持練習！" }
-        ];
-
-        const MODE_NAMES = {
-            'TF_ALL': '是非題全題庫',
-            'MC_ALL': '選擇題全題庫',
-            'TF_PRACTICE': '是非題隨堂測驗',
-            'MC_PRACTICE': '選擇題隨堂測驗',
-            'MOCK': '模擬測驗'
-        };
-
-        const Icon = ({ name, className = "w-6 h-6 shrink-0" }) => {
-            const icons = {
-                BookOpen: <path d="M2 3h6a4 4 0 0 1 4 4v14a4 4 0 0 0-4-4H2zM22 3h-6a4 4 0 0 0-4 4v14a4 4 0 0 1 4-4h6z" />,
-                CheckCircle: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></g>,
-                XCircle: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" /></g>,
-                Timer: <g fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></g>,
-                Database: <ellipse cx="12" cy="5" rx="9" ry="3" />,
-                Trash: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></g>,
-                ArrowRight: <polyline points="12 5 19 12 12 19" />,
-                Layers: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></g>,
-                Graduation: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></g>,
-                ChevronLeft: <polyline points="15 18 9 12 15 6" />,
-                ChevronRight: <polyline points="9 18 15 12 9 6" />,
-                Trophy: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h2"/><path d="M18 7h2a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-2"/><path d="M12 22V18"/><path d="M12 18H6"/><path d="M18 18h-6"/></g>,
-                Lock: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></g>,
-                NavLeft: <polyline points="18 4 8 12 18 20" />,
-                NavRight: <polyline points="6 4 16 12 6 20" />,
-                Sparkles: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3 1.912 5.886L20 10.8l-5.886 1.912L12 18.614l-1.912-5.886L4.2 10.8l5.886-1.912z"/><path d="M5 3v4"/><path d="M3 5h4"/><path d="M21 17v4"/><path d="M19 19h4"/></g>,
-                LogOut: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></g>,
-                Info: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></g>,
-                Home: <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></g>
-            };
-            return (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
-                    {icons[name] || null}
-                </svg>
-            );
-        };
-
-        const Badge = ({ mode, stats, claims }) => {
-            let level = null;
-            const claimKey = (lvlId) => `${mode}_${lvlId}`;
-            level = [...ACHIEVEMENT_LEVELS].find(l => claims[claimKey(l.id)]);
-            if (!level) return null;
-            const prefix = MODE_NAMES[mode] || "";
-            return (
-                <div className={`mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-black tracking-tight uppercase border border-white/20 shadow-sm ${level.style}`}>
-                    <Icon name="Trophy" className="w-2.5 h-2.5" />
-                    {prefix}{level.name}
-                </div>
-            );
-        };
-
-        const App = () => {
-            const [user, setUser] = useState(null);
-            const [appState, setAppState] = useState('INIT');
-            const [quizMode, setQuizMode] = useState(null); 
-            const [mockStage, setMockStage] = useState(null); 
-            const [questions, setQuestions] = useState([]);
-            const [currentIndex, setCurrentIndex] = useState(0);
-            const [userAnswers, setUserAnswers] = useState({});
-            const [currentSelection, setCurrentSelection] = useState([]);
-            const [showFeedback, setShowFeedback] = useState(false);
-            const [wrongBank, setWrongBank] = useState([]);
-            const [stats, setStats] = useState({});
-            const [claims, setClaims] = useState({});
-            const [newAchievement, setNewAchievement] = useState(null);
-            const [achievementTip, setAchievementTip] = useState(null); 
-            const [isNavOpen, setIsNavOpen] = useState(false); 
-            const [resumePrompt, setResumePrompt] = useState(null); 
-
-            const [timeLeft, setTimeLeft] = useState(0);
-            const timerRef = useRef(null);
-            const mockFullData = useRef({ tf: [], mc: [] });
-
-            useEffect(() => {
-                onAuthStateChanged(auth, (u) => { if (!u) signInAnonymously(auth); setUser(u); });
-            }, []);
-
-            useEffect(() => {
-                if (!user) return;
-                const unsubStats = onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'modeStats'), (s) => {
-                    const d = {}; s.docs.forEach(doc => {
-                        if (['MOCK_DATA', 'TF_PRACTICE_DATA', 'MC_PRACTICE_DATA'].includes(doc.id)) {
-                            const data = doc.data();
-                            d[`${doc.id}_COMPLETIONS`] = data.completions || 0;
-                            d[`${doc.id}_FULL_SCORES`] = data.fullScores || 0;
-                            d[`${doc.id}_HAS_FULL`] = data.hasFullScore || (data.fullScores > 0);
-                        } else d[doc.id] = doc.data().count || 0;
-                    });
-                    setStats(d);
-                });
-                const unsubClaims = onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'claimedAchievements'), (s) => {
-                    const c = {}; s.docs.forEach(doc => c[doc.id] = true); setClaims(c);
-                });
-                const unsubWrong = onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'wrongQuestions'), (s) => setWrongBank(s.docs.map(d => d.data())));
-                return () => { unsubStats(); unsubClaims(); unsubWrong(); };
-            }, [user]);
-
-            useEffect(() => {
-                if (appState === 'QUIZ' && quizMode === 'MOCK' && timeLeft > 0) {
-                    timerRef.current = setInterval(() => {
-                        setTimeLeft(prev => { if (prev <= 1) { clearInterval(timerRef.current); handleTimeUp(); return 0; } return prev - 1; });
-                    }, 1000);
-                }
-                return () => clearInterval(timerRef.current);
-            }, [appState, quizMode, timeLeft]);
-
-            const triggerCelebration = (lvl) => {
-                setNewAchievement({ ...lvl, modeName: MODE_NAMES[quizMode] });
-                const end = Date.now() + (3000);
-                const colors = ['#ff0000', '#ffa500', '#ffff00', '#008000', '#0000ff', '#4b0082', '#ee82ee'];
-                (function frame() {
-                    confetti({ particleCount: 5, angle: 60, spread: 60, origin: { x: 0 }, colors: colors });
-                    confetti({ particleCount: 5, angle: 120, spread: 60, origin: { x: 1 }, colors: colors });
-                    if (Date.now() < end) requestAnimationFrame(frame);
-                }());
-            };
-
-            const claimAchievement = async (m, lvl) => {
-                if (!user) return;
-                const id = `${m}_${lvl.id}`;
-                await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'claimedAchievements', id), { timestamp: Date.now() });
-                triggerCelebration(lvl);
-            };
-
-            const handleOptionClick = async (key) => {
-                if (showFeedback) return;
-                const q = questions[currentIndex];
-                const isMC = q.actualTitle.includes("(多選)") || q.actualAnswer.includes(",");
-                if (isMC) setCurrentSelection(p => p.includes(key) ? p.filter(k => k !== key) : [...p, key]);
-                else {
-                    const ansKey = currentIndex + (mockStage === 'MC' ? 50 : 0);
-                    setUserAnswers({...userAnswers, [ansKey]: key});
-                    if (quizMode !== 'MOCK') {
-                        setShowFeedback(true);
-                        const isCorrect = checkAnswer(key, q.actualAnswer);
-                        syncWrongQuestion(q, isCorrect);
-                        if (quizMode.includes('ALL')) {
-                            const currentCount = (stats[quizMode] || 0) + 1;
-                            // 即時解鎖偵測
-                            const unlocked = ACHIEVEMENT_LEVELS.find(lvl => lvl.id !== 'level5' && lvl.id !== 'level4' && currentCount >= lvl.threshold && (stats[quizMode] || 0) < lvl.threshold);
-                            if (unlocked) triggerCelebration(unlocked);
-                            setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'modeStats', quizMode), { count: increment(1) }, { merge: true });
-                        }
-                    }
-                }
-            };
-
-            const handleMultiSubmit = async () => {
-                const finalAns = [...currentSelection].sort().join(',');
-                const ansKey = currentIndex + (mockStage === 'MC' ? 50 : 0);
-                setUserAnswers({...userAnswers, [ansKey]: finalAns});
-                if (quizMode !== 'MOCK') {
-                    setShowFeedback(true);
-                    const isCorrect = checkAnswer(finalAns, questions[currentIndex].actualAnswer);
-                    syncWrongQuestion(questions[currentIndex], isCorrect);
-                    if (quizMode.includes('ALL')) {
-                        const currentCount = (stats[quizMode] || 0) + 1;
-                        const unlocked = ACHIEVEMENT_LEVELS.find(lvl => lvl.id !== 'level5' && lvl.id !== 'level4' && currentCount >= lvl.threshold && (stats[quizMode] || 0) < lvl.threshold);
-                        if (unlocked) triggerCelebration(unlocked);
-                        setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'modeStats', quizMode), { count: increment(1) }, { merge: true });
-                    }
-                } else { setCurrentSelection([]); }
-            };
-
-            useEffect(() => {
-                if (appState === 'RESULT' && user && quizMode) {
-                    const score = questions.reduce((acc, q, i) => acc + (checkAnswer(userAnswers[i], q.actualAnswer) ? 1 : 0), 0);
-                    const isFullScore = score === questions.length;
-                    if (quizMode === 'MOCK') {
-                        const prevComp = stats['MOCK_DATA_COMPLETIONS'] || 0;
-                        const unlocked = ACHIEVEMENT_LEVELS.find(lvl => lvl.id !== 'level5' && (prevComp + 1) >= lvl.mockThreshold && prevComp < lvl.mockThreshold);
-                        if (unlocked || (isFullScore && !stats['MOCK_DATA_HAS_FULL'])) triggerCelebration(unlocked || ACHIEVEMENT_LEVELS[0]);
-                        setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'modeStats', 'MOCK_DATA'), { completions: increment(1), hasFullScore: stats['MOCK_DATA_HAS_FULL'] || isFullScore }, { merge: true });
-                    } else if (quizMode.includes('PRACTICE')) {
-                        const dKey = `${quizMode}_DATA`;
-                        const prevComp = stats[`${dKey}_COMPLETIONS`] || 0;
-                        const prevFull = stats[`${dKey}_FULL_SCORES`] || 0;
-                        let unlocked = null;
-                        if (isFullScore) {
-                            if (prevFull + 1 === 2) unlocked = ACHIEVEMENT_LEVELS[0];
-                            else if (prevFull + 1 === 1) unlocked = ACHIEVEMENT_LEVELS[1];
-                        }
-                        if (!unlocked) unlocked = ACHIEVEMENT_LEVELS.find(lvl => lvl.quizComp > 0 && lvl.quizFull === 0 && (prevComp + 1) >= lvl.quizComp && prevComp < lvl.quizComp);
-                        if (unlocked) triggerCelebration(unlocked);
-                        setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'modeStats', dKey), { completions: increment(1), fullScores: isFullScore ? increment(1) : increment(0) }, { merge: true });
-                    }
-                }
-            }, [appState]);
-
-            const handleTimeUp = () => { if (mockStage === 'TF') startMockPhase('MC'); else setAppState('RESULT'); };
-            const syncWrongQuestion = async (q, isCorrect) => { if (!user) return; const qId = btoa(unescape(encodeURIComponent(q.actualTitle))).replace(/[/+=]/g, ''); const ref = doc(db, 'artifacts', appId, 'users', user.uid, 'wrongQuestions', qId); if (isCorrect) await deleteDoc(ref); else await setDoc(ref, { ...q, timestamp: Date.now() }); };
-            const checkAnswer = (u, c) => { if (!u) return false; const norm = s => s.split(',').map(i => normalizeTF(i)).sort().join(','); return norm(u) === norm(c); };
-            const normalizeTF = v => { const s = v?.toString().toUpperCase().trim(); if (['O','A','1','T','正確','TRUE','○','◯','✅','是'].includes(s)) return 'O'; if (['X','B','2','F','錯誤','FALSE','✕','✖','❌','否'].includes(s)) return 'X'; return s; };
+      useEffect(() => {
+        const fetchQuestions = async () => {
+          try {
+            const tfRes = await fetch('https://docs.google.com/spreadsheets/d/1QWJowhf3psJBO5L9qxYdqTXY0I6aHToMD3ySj8cod2U/gviz/tq?tqx=out:csv&gid=297844755');
+            const mcRes = await fetch('https://docs.google.com/spreadsheets/d/18Isb8r4Kf_GHbPbCbxWNIPzlQ_qMvBmmvoWOs9bdDeQ/gviz/tq?tqx=out:csv&gid=795659602');
             
-            const parseCSV = text => { 
-                const res = []; let row = [], field = '', inQ = false; 
-                for(let i=0; i<text.length; i++){ 
-                    const c = text[i]; 
-                    if(inQ){ if(c==='"' && text[i+1]==='"'){ field+='"'; i++; } else if(c==='"') inQ=false; else field+=c; } 
-                    else { if(c==='"') inQ=true; else if(c===','){ row.push(field.trim()); field=''; } else if(c==='\n'||c==='\r'){ row.push(field.trim()); if(row.some(f=>f!=='')) res.push(row); row=[]; field=''; if(c==='\r'&&text[i+1]==='\n') i++; } else field+=c; } 
-                } 
-                if(row.length>0||field!==''){ row.push(field.trim()); res.push(row); } 
-                const h = res[0].map(s=>s.trim()); 
-                return res.slice(1).map(r=>{ 
-                    const o={_rawRow:r}; 
-                    h.forEach((k,i)=>o[k]=r[i]||""); 
-                    // 強化映射：若標題名稱失敗則使用順序
-                    o.actualTitle = o['題目'] || r[0] || "題目讀取失敗";
-                    o.actualAnswer = o['正解'] || o['答案'] || r[2]; 
-                    o.rawOptions = o['選項'] || r[1] || "";
-                    // 針對是非題調整：若為是非題模式，B欄直接就是答案
-                    if (r.length < 5) o.actualAnswer = o['正解'] || o['答案'] || r[1];
-                    return o; 
-                }); 
-            };
+            const tfText = await tfRes.text();
+            const mcText = await mcRes.text();
 
-            const fetchBank = async (mode, start = 0) => {
-                setAppState('LOADING');
-                try {
-                    const [t, m] = await Promise.all([fetch(TF_SHEET_URL).then(r => r.text()), fetch(MC_SHEET_URL).then(r => r.text())]);
-                    const tf = parseCSV(t).map(q => ({ ...q, type: 'TF', actualExplanation: q._rawRow[3] || "" }));
-                    const mc = parseCSV(m).map(q => ({ ...q, type: 'MC', actualExplanation: q._rawRow[4] || "" }));
-                    let sel = [];
-                    if (mode === 'TF_ALL') sel = tf; else if (mode === 'MC_ALL') sel = mc;
-                    else if (mode === 'TF_PRACTICE') sel = tf.sort(() => 0.5 - Math.random()).slice(0, 20);
-                    else if (mode === 'MC_PRACTICE') sel = mc.sort(() => 0.5 - Math.random()).slice(0, 20);
-                    else if (mode === 'WRONG_PRACTICE') sel = [...wrongBank].sort(() => 0.5 - Math.random());
-                    else if (mode === 'MOCK') { mockFullData.current = { tf: tf.sort(() => 0.5 - Math.random()).slice(0, 50), mc: mc.sort(() => 0.5 - Math.random()).slice(0, 50) }; setQuizMode('MOCK'); startMockPhase('TF'); return; }
-                    setQuestions(sel); setCurrentIndex(start); setUserAnswers({}); setAppState('QUIZ'); setQuizMode(mode);
-                } catch (e) { setAppState('INIT'); }
-            };
+            const parsedTf = parseCSV(tfText).slice(1);
+            const parsedMc = parseCSV(mcText).slice(1);
 
-            const startMockPhase = phase => { setMockStage(phase); setQuestions(phase === 'TF' ? mockFullData.current.tf : mockFullData.current.mc); setCurrentIndex(0); setTimeLeft(50 * 60); setAppState('QUIZ'); };
-            const saveBookmark = async (m, i) => { if (!user || !m.includes('ALL')) return; await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'fullBankProgress', m), { lastIndex: i, timestamp: Date.now() }); };
-            const getBookmark = async m => { if (!user) return 0; const s = await getDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'fullBankProgress', m)); return s.exists() ? s.data().lastIndex : 0; };
-            const handleAllBankMode = async m => { const idx = await getBookmark(m); if(idx > 0) setResumePrompt({mode:m, savedIndex:idx}); else fetchBank(m, 0); };
-            const moveToNext = () => { const nextIdx = currentIndex + 1; setShowFeedback(false); if (nextIdx < questions.length) { setCurrentIndex(nextIdx); setCurrentSelection([]); if (quizMode.includes('ALL')) saveBookmark(quizMode, nextIdx); } else { if (quizMode === 'MOCK' && mockStage === 'TF') startMockPhase('MC'); else setAppState('RESULT'); } };
-            const moveToPrev = () => { if (currentIndex > 0) { setShowFeedback(false); setCurrentIndex(currentIndex - 1); setCurrentSelection([]); } };
-            const formatDisplayLabel = (v, t) => { if (!v) return "未填答"; if (t === 'TF') { const n = normalizeTF(v); return n === 'O' ? '正確' : (n === 'X' ? '錯誤' : v); } return v; };
+            const formattedTf = parsedTf.map((row, index) => ({
+              id: `tf_${index}`, type: 'tf', originalIndex: index,
+              question: row[1] || '', answer: row[2] === 'O' ? 'O' : 'X', explanation: row[3] || '無解析',
+            })).filter(q => q.question);
 
-            const AchievementsWall = () => (
-                <div className="min-h-screen p-4 md:p-8 flex items-center justify-center animate-in fade-in zoom-in duration-300">
-                    <div className="max-w-4xl w-full bg-white rounded-[3rem] shadow-2xl p-8 md:p-12 border relative flex flex-col">
-                        {achievementTip && (
-                            <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-[2px]" onClick={() => setAchievementTip(null)}>
-                                <div className="max-w-xs w-full bg-white rounded-3xl p-8 shadow-2xl text-center border-2 border-blue-100 animate-in zoom-in" onClick={e => e.stopPropagation()}>
-                                    <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-6"><Icon name="Info" className="w-8 h-8" /></div>
-                                    <h3 className="text-xl font-black text-slate-800 mb-2">達成條件</h3>
-                                    <p className="text-slate-500 font-bold mb-8 leading-relaxed">{achievementTip}</p>
-                                    <button onClick={() => setAchievementTip(null)} className="w-full py-3 bg-blue-600 text-white rounded-xl font-black shadow-lg">知道了！</button>
-                                </div>
-                            </div>
-                        )}
-                        <div className="flex justify-between items-center mb-10">
-                            <div><h1 className="text-3xl font-black text-slate-800 uppercase tracking-tighter">成就獎章牆</h1><p className="text-slate-400 font-bold text-xs tracking-widest uppercase">🏆 點選發光的鎖頭即可領取勳章</p></div>
-                            <button onClick={() => setAppState('INIT')} className="p-4 bg-slate-100 hover:bg-slate-200 rounded-2xl transition-all"><Icon name="XCircle" className="text-slate-500" /></button>
-                        </div>
-                        <div className="space-y-10 max-h-[60vh] overflow-y-auto px-2 flex-1">
-                            {Object.entries(MODE_NAMES).map(([m, label]) => (
-                                <div key={m} className="border-b border-slate-50 pb-8 last:border-0">
-                                    <div className="flex justify-between items-end mb-6">
-                                        <div className="font-black text-slate-700 flex items-center gap-3"><div className="w-1.5 h-5 bg-blue-600 rounded-full"></div>{label}</div>
-                                        <div className="text-[10px] font-bold text-blue-500 bg-blue-50 px-3 py-1 rounded-full uppercase">
-                                            {m === 'MOCK' ? `模擬考完成：${stats['MOCK_DATA_COMPLETIONS'] || 0} 次` : m.includes('PRACTICE') ? `隨堂完成：${stats[`${m}_DATA_COMPLETIONS`] || 0} 次` : `已累計：${stats[m] || 0} 題`}
-                                        </div>
-                                    </div>
-                                    <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3">
-                                        {[...ACHIEVEMENT_LEVELS].reverse().map(lvl => {
-                                            const claimKey = `${m}_${lvl.id}`;
-                                            const isClaimed = claims[claimKey];
-                                            let canClaim = false;
-                                            let tip = "";
-                                            if (m === 'MOCK') {
-                                                if (lvl.id === 'level5') { canClaim = stats['MOCK_DATA_HAS_FULL'] || false; tip = "需模擬考滿分獎"; }
-                                                else { canClaim = (stats['MOCK_DATA_COMPLETIONS'] || 0) >= lvl.mockThreshold; tip = `需完成模擬考 ${lvl.mockThreshold} 次`; }
-                                            } else if (m.includes('PRACTICE')) {
-                                                const dKey = `${m}_DATA`;
-                                                if (lvl.id === 'level5') { canClaim = (stats[`${dKey}_FULL_SCORES`] || 0) >= 2; tip = "需隨堂測驗 2 次滿分"; }
-                                                else if (lvl.id === 'level4') { canClaim = (stats[`${dKey}_FULL_SCORES`] || 0) >= 1; tip = "需隨堂測驗 1 次滿分"; }
-                                                else { canClaim = (stats[`${dKey}_COMPLETIONS`] || 0) >= lvl.quizComp; tip = `需完成隨堂測驗 ${lvl.quizComp} 次`; }
-                                            } else {
-                                                canClaim = lvl.id !== 'level5' && lvl.id !== 'level4' && (stats[m] || 0) >= lvl.threshold;
-                                                tip = `需累計練習 ${lvl.threshold} 題`;
-                                            }
-                                            return (
-                                                <div key={lvl.id} onClick={() => isClaimed ? null : (canClaim ? claimAchievement(m, lvl) : setAchievementTip(`${label}${lvl.name}：${tip}`))}
-                                                    className={`flex flex-col items-center p-3 rounded-2xl border-2 transition-all cursor-pointer ${isClaimed ? 'border-blue-100 bg-white shadow-sm' : (canClaim ? 'border-yellow-400 bg-yellow-50 animate-pulse scale-105' : 'border-slate-50 opacity-20 grayscale')}`}>
-                                                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-2 ${isClaimed ? lvl.style : (canClaim ? 'bg-yellow-400 text-white shadow-md' : 'bg-slate-200')}`}><Icon name={isClaimed ? "Trophy" : "Lock"} className="w-5 h-5" /></div>
-                                                    <div className="text-[8px] font-black text-center leading-tight">{lvl.name}</div>
-                                                    {canClaim && !isClaimed && <div className="mt-1 text-[7px] font-black text-yellow-600 animate-bounce">領取</div>}
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                        <div className="mt-8 pt-8 border-t border-slate-100"><button onClick={() => setAppState('INIT')} className="w-full py-5 bg-slate-900 text-white rounded-[2rem] font-black text-xl shadow-xl hover:bg-black transition-all flex items-center justify-center gap-3 font-bold"><Icon name="Home" className="w-6 h-6 text-blue-400" />返回系統首頁</button></div>
-                    </div>
-                </div>
-            );
+            const formattedMc = parsedMc.map((row, index) => {
+              const qText = row[1] || '';
+              const cleanAnswer = (row[3] || '').replace(/[, ]/g, '').toUpperCase();
+              const isMultiple = cleanAnswer.length > 1 || qText.includes('(多選)');
+              const optionsRaw = row[2] || '';
+              const parsedOptions = optionsRaw.split(/[A-E][.．、]\s*/).filter(o => o.trim() !== '').map(o => o.trim());
 
-            if (appState === 'ACHIEVEMENTS') return <AchievementsWall />;
+              return {
+                id: `mc_${index}`, type: 'mc', isMultiple, originalIndex: index,
+                question: qText, options: parsedOptions, answer: cleanAnswer, explanation: row[4] || '無解析',
+              };
+            }).filter(q => q.question && q.options.length > 0);
 
-            return (
-                <div className="min-h-screen flex items-center justify-center p-4">
-                    {newAchievement && (
-                        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-500 font-bold" onClick={() => setNewAchievement(null)}>
-                            <div className="max-w-sm w-full bg-white rounded-[3rem] p-10 text-center shadow-2xl animate-in zoom-in slide-in-from-bottom-8 duration-500" onClick={e => e.stopPropagation()}>
-                                <div className="w-24 h-24 rounded-3xl mx-auto mb-8 flex items-center justify-center relative bg-yellow-50"><div className={`w-20 h-20 rounded-2xl flex items-center justify-center z-10 ${newAchievement.style}`}><Icon name="Trophy" className="w-10 h-10" /></div><div className="absolute inset-0 bg-yellow-400 rounded-3xl animate-ping opacity-20"></div></div>
-                                <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-blue-50 text-blue-600 rounded-full text-xs font-black tracking-widest mb-4"><Icon name="Sparkles" className="w-3.5 h-3.5" /> Achievement Unlocked</div>
-                                <h2 className="text-2xl font-black text-slate-800 mb-2">{newAchievement.modeName}</h2>
-                                <h3 className="text-3xl font-black text-blue-600 mb-6">{newAchievement.name}</h3>
-                                <p className="text-slate-500 mb-10 font-bold leading-relaxed">{newAchievement.msg}</p>
-                                <button onClick={() => setNewAchievement(null)} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black shadow-xl hover:bg-black transition-all">太棒了，繼續努力！</button>
-                            </div>
-                        </div>
-                    )}
-
-                    {appState === 'INIT' ? (
-                        <div className="max-w-2xl w-full bg-white rounded-[2.5rem] shadow-2xl p-8 md:p-12 text-center border relative overflow-hidden">
-                            <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-blue-100"><Icon name="BookOpen" className="text-white" /></div>
-                            <h1 className="text-3xl font-black text-slate-800 mb-2 uppercase tracking-tighter font-bold">人本街道考古題練習</h1>
-                            <button onClick={() => setAppState('ACHIEVEMENTS')} className="inline-flex items-center gap-2 px-6 py-2 bg-yellow-50 hover:bg-yellow-100 text-yellow-600 rounded-full transition-all border border-yellow-100 mb-10 group shadow-sm font-black text-sm uppercase tracking-widest">
-                                <Icon name="Trophy" className="w-4 h-4 group-hover:rotate-12 transition-transform" />查看成就獎章牆
-                            </button>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
-                                {Object.entries(MODE_NAMES).map(([m, label]) => (
-                                    <button key={m} onClick={() => m.includes('ALL') ? handleAllBankMode(m) : fetchBank(m)} className={`p-5 border-2 border-slate-100 hover:border-blue-500 rounded-3xl transition-all flex items-start gap-4 ${m==='MOCK'?'md:col-span-2 bg-slate-50':''}`}>
-                                        <div className={`p-2 rounded-xl ${m==='TF_ALL'?'bg-blue-50 text-blue-500':m==='MC_ALL'?'bg-emerald-50 text-emerald-500':'bg-blue-50 text-blue-600'}`}><Icon name={m==='MOCK'?'Database':m.includes('TF')?'CheckCircle':m.includes('MC')?'Graduation':'Layers'} /></div>
-                                        <div className="flex-1"><div className="font-bold text-slate-700 text-sm font-bold">{label}</div><div className="text-[10px] text-slate-400 font-medium uppercase font-bold">{m==='MOCK'?'50/50 實戰測驗':m.includes('ALL')?'1-280 循序':'隨機 20 題'}</div><Badge mode={m} stats={stats} claims={claims} /></div>
-                                    </button>
-                                ))}
-                                <button disabled={wrongBank.length===0} onClick={()=>fetchBank('WRONG_PRACTICE')} className={`w-full p-6 border-2 rounded-3xl transition-all md:col-span-2 ${wrongBank.length>0?'bg-rose-50 border-rose-100 hover:border-rose-400':'bg-slate-50 border-slate-100 opacity-40'}`}><div className="flex items-center gap-3"><div className="w-12 h-12 bg-rose-500 rounded-2xl text-white flex items-center justify-center"><Icon name="XCircle" className="w-7 h-7" /></div><div className="text-left"><div className="font-black text-slate-800 text-lg font-bold">錯題強化練習</div><div className="text-xs text-rose-400 font-bold uppercase tracking-wider font-bold">目前累積 {wrongBank.length} 題</div></div></div></button>
-                            </div>
-                        </div>
-                    ) : appState === 'QUIZ' ? (
-                        <div className="max-w-4xl w-full">
-                            <div className="flex justify-between items-center mb-6 px-4">
-                                <div className="flex gap-2"><span className="px-4 py-2 bg-blue-600 text-white rounded-full font-bold shadow-sm text-sm font-bold">第 {currentIndex + 1} 題</span><span className="px-4 py-2 bg-white text-slate-500 border rounded-full font-bold text-sm uppercase tracking-widest font-bold">{quizMode==='MOCK'?(mockStage==='TF'?'模擬考：是非':'模擬考：選擇'):'練習模式'}</span></div>
-                                <button onClick={() => setAppState('INIT')} className="flex items-center gap-2 px-4 py-2 bg-white text-blue-600 rounded-full font-black text-xs shadow-sm border border-blue-50 hover:bg-blue-50 transition-all group font-bold font-bold"><Icon name="LogOut" className="w-3.5 h-3.5 group-hover:-translate-x-1 transition-transform" />儲存進度並回首頁</button>
-                            </div>
-                            <div className="flex items-center justify-center gap-2 md:gap-6">
-                                <button onClick={moveToPrev} disabled={currentIndex===0} className="p-3 md:p-6 text-slate-300 hover:text-slate-600 transition-all disabled:opacity-0"><Icon name="NavLeft" className="w-10 h-10 md:w-16 md:h-16" /></button>
-                                <div className="bg-white rounded-[2rem] shadow-xl overflow-hidden border border-slate-100 flex-1">
-                                    <div className="p-8 md:p-12">
-                                        <h2 className="text-2xl font-bold text-slate-800 mb-10 leading-relaxed min-h-[4rem]">{questions[currentIndex]?.actualTitle}</h2>
-                                        <div className="space-y-4">
-                                            {(questions[currentIndex]?.type === 'TF' ? [{key:'O', val:'正確 (O)'}, {key:'X', val:'錯誤 (X)'}] : (() => { const raw = questions[currentIndex]?.rawOptions || ""; const m = [...raw.matchAll(/([A-E])[.、\s]+(.*?)(?=\s*[A-E][.、\s]|$)/g)]; return m.length > 0 ? m.map(x => ({ key: x[1], val: x[2].trim() })) : raw.split(/\s+/).filter(s=>s).map((s,i)=>({key:String.fromCharCode(65+i), val:s})); })()).map(opt => {
-                                                const ansKey = currentIndex + (quizMode === 'MOCK' && mockStage === 'MC' ? 50 : 0);
-                                                const checked = userAnswers[ansKey]?.split(',').includes(opt.key) || userAnswers[ansKey] === opt.key;
-                                                const isCorrect = questions[currentIndex]?.actualAnswer.split(',').map(s=>normalizeTF(s.trim())).includes(normalizeTF(opt.key));
-                                                let style = "w-full p-5 rounded-2xl border-2 text-left transition-all flex items-center gap-5 ";
-                                                if (!showFeedback) style += checked ? "border-blue-600 bg-blue-50 text-blue-700 shadow-sm" : "border-slate-50 hover:border-slate-200 text-slate-600";
-                                                else style += isCorrect ? "border-emerald-500 bg-emerald-50 text-emerald-800" : (checked ? "border-rose-500 bg-rose-50 text-rose-800" : "opacity-40");
-                                                return (<button key={opt.key} onClick={() => handleOptionClick(opt.key)} disabled={showFeedback} className={style}>{questions[currentIndex]?.type !== 'TF' && <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black ${checked ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}`}>{opt.key}</div>}{questions[currentIndex]?.type === 'TF' && checked && <Icon name={showFeedback && !isCorrect ? "XCircle" : "CheckCircle"} className={`w-8 h-8 shrink-0 ${showFeedback ? (isCorrect ? 'text-emerald-600' : 'text-rose-600') : 'text-blue-600'}`} />}<span className="text-lg font-bold flex-1 font-bold">{opt.val}</span></button>);
-                                            })}
-                                        </div>
-                                        <div className="mt-10 flex flex-col gap-4">
-                                            {(questions[currentIndex]?.actualTitle.includes("(多選)") || questions[currentIndex]?.actualAnswer.includes(",")) && !showFeedback && (<button onClick={handleMultiSubmit} className="w-full py-5 bg-blue-600 text-white rounded-2xl font-black text-xl shadow-lg shadow-blue-100 font-bold">確認答案</button>)}
-                                            {quizMode==='MOCK' && currentIndex===49 && (<button onClick={moveToNext} className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black text-xl shadow-xl font-bold">{mockStage==='TF'?'下一步：進入選擇題':'完成交卷'}</button>)}
-                                            {!showFeedback && quizMode !== 'MOCK' && (<button onClick={moveToNext} className="text-slate-400 text-sm font-bold underline underline-offset-8 block mx-auto py-4 font-bold">跳過此題</button>)}
-                                        </div>
-                                    </div>
-                                    {showFeedback && (
-                                        <div className="bg-slate-50 p-8 md:p-12 border-t-2 border-slate-100 font-bold">
-                                            <div className={`flex items-center gap-3 p-5 rounded-2xl font-black text-xl mb-8 ${checkAnswer(userAnswers[currentIndex], questions[currentIndex]?.actualAnswer)?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-700'}`}><Icon name={checkAnswer(userAnswers[currentIndex], questions[currentIndex]?.actualAnswer)?"CheckCircle":"XCircle"} /> {checkAnswer(userAnswers[currentIndex], questions[currentIndex]?.actualAnswer)?"答對了！":"答錯了..."}</div>
-                                            <div className="grid grid-cols-2 gap-4 mb-8"><div className="bg-white p-5 rounded-2xl border text-center shadow-sm"><div className="text-xs font-bold text-slate-400 mb-1 uppercase tracking-widest uppercase font-bold">您的選擇</div><div className="font-black text-xl font-bold">{formatDisplayLabel(userAnswers[currentIndex], questions[currentIndex]?.type)}</div></div><div className="bg-white p-5 rounded-2xl border text-center shadow-sm"><div className="text-xs font-bold text-slate-400 mb-1 uppercase tracking-widest uppercase font-bold">正確答案</div><div className="font-black text-xl text-blue-600 font-bold">{formatDisplayLabel(questions[currentIndex]?.actualAnswer, questions[currentIndex]?.type)}</div></div></div>
-                                            <div className="bg-white p-6 rounded-2xl border mb-10 text-slate-700 leading-relaxed shadow-sm font-medium"><div className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-widest flex items-center gap-2 font-bold"><div className="w-1.5 h-3 bg-blue-500 rounded-full"></div> 解析說明</div><div className="font-medium text-lg leading-relaxed">{questions[currentIndex]?.actualExplanation || "暫無詳細說明。"}</div></div>
-                                            <button onClick={moveToNext} className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black text-xl shadow-xl flex items-center justify-center gap-2 hover:bg-black transition-all font-bold font-bold font-bold">下一題 <Icon name="ArrowRight" /></button>
-                                        </div>
-                                    )}
-                                </div>
-                                <button onClick={moveToNext} disabled={currentIndex === questions.length-1 && quizMode!=='MOCK'} className="p-3 md:p-6 text-slate-300 hover:text-slate-600 transition-all disabled:opacity-0"><Icon name="NavRight" className="w-10 h-10 md:w-16 md:h-16" /></button>
-                            </div>
-                        </div>
-                    ) : appState === 'RESULT' ? (
-                        <div className="max-w-2xl w-full bg-white rounded-[3rem] shadow-2xl p-10 md:p-16 text-center border border-slate-100 font-bold">
-                            <h1 className="text-4xl font-black mb-10 text-slate-800 uppercase tracking-tighter">測驗結算</h1>
-                            <div className="bg-slate-50 p-10 rounded-[2.5rem] mb-8 border shadow-inner"><div className="text-sm text-slate-400 mb-2 uppercase tracking-widest font-bold">本次正確率</div><div className="text-6xl font-black text-blue-600 font-bold">{Math.round((questions.reduce((acc, q, i) => acc + (checkAnswer(userAnswers[i], q.actualAnswer) ? 1 : 0), 0)/questions.length)*100)}%</div></div>
-                            <div className="mb-12"><div className="text-xs font-bold text-slate-400 uppercase tracking-[0.2em] mb-4 font-bold">累積成就進度</div><div className="flex flex-col items-center"><Badge mode={quizMode} stats={stats} claims={claims} /><div className="text-xs text-slate-400 mt-2 font-bold font-bold">{quizMode === 'MOCK' ? `模擬考完成：${stats['MOCK_DATA_COMPLETIONS'] || 0} 次` : quizMode.includes('PRACTICE') ? `隨堂完成：${stats[`${quizMode}_DATA_COMPLETIONS`] || 0} 次` : `已累計：${stats[quizMode] || 0} 題`}</div></div></div>
-                            <div className="flex gap-4"><button onClick={() => setAppState('INIT')} className="flex-1 py-5 bg-slate-900 text-white rounded-3xl font-black text-xl shadow-xl hover:bg-black font-bold transition-all font-bold">返回首頁</button><button onClick={() => fetchBank(quizMode)} className="flex-1 py-5 bg-slate-100 text-slate-600 rounded-3xl font-black text-xl hover:bg-slate-200 font-bold transition-all font-bold">重新測試</button></div>
-                        </div>
-                    ) : null}
-                    {resumePrompt && (<div className="fixed inset-0 bg-black/60 z-[120] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-300"><div className="max-w-sm w-full bg-white rounded-[3rem] p-10 text-center shadow-2xl">
-                        <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-6"><Icon name="Bookmark" className="w-10 h-10" /></div>
-                        <h3 className="text-2xl font-black text-slate-800 mb-2 font-bold uppercase tracking-tight">發現上次進度</h3>
-                        <p className="text-slate-500 mb-10 font-bold">要在第 <span className="text-blue-600">{resumePrompt.savedIndex+1}</span> 題繼續嗎？</p>
-                        <div className="flex flex-col gap-3"><button onClick={()=>{fetchBank(resumePrompt.mode, resumePrompt.savedIndex); setResumePrompt(null);}} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg font-bold">從中斷處繼續</button>
-                        <button onClick={()=>{fetchBank(resumePrompt.mode, 0); setResumePrompt(null);}} className="w-full py-4 bg-slate-100 text-slate-500 rounded-2xl font-bold flex items-center justify-center gap-2 font-bold font-bold"><Icon name="Rotate" className="w-4 h-4" /> 重新開始</button></div>
-                    </div></div>)}
-                </div>
-            );
+            setTfBank(formattedTf);
+            setMcBank(formattedMc);
+          } catch (error) {
+            console.error("Failed to fetch questions:", error);
+          }
         };
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
+        fetchQuestions();
+      }, []);
+
+      useEffect(() => {
+        if (!user) return;
+        setLoading(true);
+
+        const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data');
+        const mistakesColRef = collection(db, 'artifacts', appId, 'users', user.uid, 'mistakes');
+        const achievementsColRef = collection(db, 'artifacts', appId, 'users', user.uid, 'achievements');
+
+        const initProfile = async () => {
+          try {
+            const snap = await getDoc(userDocRef);
+            if (snap.exists()) {
+              const data = snap.data();
+              setUserProgress(data.progress || { tf_full: 0, mc_full: 0 });
+              setUserStats(data.stats || {
+                tf_full_answered: 0, mc_full_answered: 0, tf_random_completed: 0, tf_random_perfect: 0,
+                mc_random_completed: 0, mc_random_perfect: 0, mock_completed: 0, mock_perfect: 0
+              });
+            } else {
+              await setDoc(userDocRef, { progress: { tf_full: 0, mc_full: 0 }, stats: {} }, { merge: true });
+            }
+          } catch (err) {
+            console.error("Firestore read error:", err);
+          }
+          setLoading(false);
+        };
+        initProfile();
+
+        const unsubMistakes = onSnapshot(mistakesColRef, (snapshot) => {
+          const ms = [];
+          snapshot.forEach(doc => ms.push({ id: doc.id, ...doc.data() }));
+          setMistakes(ms);
+        }, (err) => console.error("Mistakes snapshot error:", err));
+
+        const unsubAchievements = onSnapshot(achievementsColRef, (snapshot) => {
+          const achs = [];
+          snapshot.forEach(doc => achs.push(doc.id));
+          setClaimedAchievements(achs);
+        }, (err) => console.error("Achievements snapshot error:", err));
+
+        return () => { unsubMistakes(); unsubAchievements(); };
+      }, [user]);
+
+      const updateStats = async (newStatsUpdates) => {
+        if (!user) return;
+        const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data');
+        const updatedStats = { ...userStats, ...newStatsUpdates };
+        setUserStats(updatedStats);
+        try {
+          await setDoc(userDocRef, { stats: updatedStats }, { merge: true });
+        } catch (e) { console.error(e); }
+      };
+
+      const saveProgress = async (mode, currentIndex) => {
+        if (!user) return;
+        const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data');
+        const updatedProgress = { ...userProgress, [mode]: currentIndex };
+        setUserProgress(updatedProgress);
+        try {
+          await setDoc(userDocRef, { progress: updatedProgress }, { merge: true });
+        } catch (e) { console.error(e); }
+      };
+
+      const handleMistakeUpdate = async (question, isCorrect) => {
+        if (!user) return;
+        const mistakeRef = doc(db, 'artifacts', appId, 'users', user.uid, 'mistakes', question.id);
+        const existing = mistakes.find(m => m.id === question.id);
+
+        try {
+          if (isCorrect) {
+            if (existing) {
+              const newStreak = (existing.streak || 0) + 1;
+              if (newStreak >= 3) await deleteDoc(mistakeRef);
+              else await updateDoc(mistakeRef, { streak: newStreak });
+            }
+          } else {
+            await setDoc(mistakeRef, {
+              question: question.question, type: question.type, answer: question.answer,
+              options: question.options || null, explanation: question.explanation,
+              streak: 0, lastFailed: new Date().toISOString()
+            }, { merge: true });
+          }
+        } catch (e) { console.error(e); }
+      };
+
+      const triggerConfetti = () => {
+        setShowConfetti(true);
+        setTimeout(() => setShowConfetti(false), 3000);
+      };
+
+      const showModal = (title, message, type = 'alert', onConfirm = null) => {
+        setModalConfig({ title, message, type, onConfirm });
+      };
+
+      const startQuiz = (mode) => {
+        let questions = [], timeLimit = null, startIndex = 0;
+
+        if (mode === 'tf_full') { questions = [...tfBank]; startIndex = userProgress.tf_full || 0; } 
+        else if (mode === 'mc_full') { questions = [...mcBank]; startIndex = userProgress.mc_full || 0; } 
+        else if (mode === 'tf_random') { questions = shuffleArray(tfBank).slice(0, 20); } 
+        else if (mode === 'mc_random') { questions = shuffleArray(mcBank).slice(0, 20); } 
+        else if (mode === 'mock') {
+          questions = [...shuffleArray(tfBank).slice(0, 50), ...shuffleArray(mcBank).slice(0, 50)];
+          timeLimit = 50 * 60;
+        } else if (mode === 'mistakes') {
+          questions = shuffleArray(mistakes);
+        }
+
+        if (questions.length === 0 && mode !== 'mistakes') {
+           showModal("提示", "題庫載入中或為空，請稍後再試。");
+           return;
+        }
+
+        setQuizConfig({ mode, questions, timeLimit, startIndex });
+        setCurrentView('quiz');
+      };
+
+      if (loading || tfBank.length === 0) {
+        return (
+          <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: COLORS.bg }}>
+            <div className="text-center">
+              <div className="w-16 h-16 border-4 border-[#7B929A] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+              <p style={{ color: COLORS.textMain }} className="font-medium text-lg">載入題庫與設定中...</p>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="min-h-screen relative font-sans selection:bg-[#9CAE96] selection:text-white pb-10 overflow-x-hidden" style={{ backgroundColor: COLORS.bg }}>
+          <header className="px-6 py-4 flex justify-between items-center max-w-4xl mx-auto relative z-10">
+            <h1 className="text-2xl font-bold tracking-wider" style={{ color: COLORS.textMain }}>
+              人本街道<span style={{ color: COLORS.primary }}>練習系統</span>
+            </h1>
+            <div className="flex gap-4">
+              <button onClick={() => setCurrentView('home')} className="p-2 rounded-full hover:bg-black/5 transition-colors" title="首頁">
+                <Home size={24} style={{ color: COLORS.textMain }} />
+              </button>
+              <button onClick={() => setCurrentView('achievements')} className="p-2 rounded-full hover:bg-black/5 transition-colors relative" title="成就牆">
+                <Trophy size={24} style={{ color: COLORS.accent }} />
+              </button>
+            </div>
+          </header>
+
+          {modalConfig && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm">
+              <div className="bg-white rounded-3xl p-8 max-w-sm w-full mx-4 shadow-2xl">
+                 <h3 className="text-xl font-bold mb-3 text-gray-800">{modalConfig.title}</h3>
+                 <p className="text-gray-600 mb-8 leading-relaxed">{modalConfig.message}</p>
+                 <div className="flex justify-end gap-3">
+                   {modalConfig.type === 'confirm' && (
+                     <button onClick={() => setModalConfig(null)} className="px-5 py-2.5 rounded-full font-medium text-gray-500 hover:bg-gray-100 transition-colors">取消</button>
+                   )}
+                   <button 
+                     onClick={() => { if (modalConfig.onConfirm) modalConfig.onConfirm(); setModalConfig(null); }} 
+                     className="px-5 py-2.5 rounded-full font-bold text-white shadow-md hover:scale-105 transition-transform"
+                     style={{ backgroundColor: COLORS.primary }}
+                   >確定</button>
+                 </div>
+              </div>
+            </div>
+          )}
+
+          {showConfetti && (
+            <div className="fixed inset-0 pointer-events-none z-50 flex items-center justify-center overflow-hidden">
+               {[...Array(30)].map((_, i) => (
+                 <div key={i} className="absolute animate-firework" style={{
+                   left: `50%`, top: `50%`,
+                   '--tx': `${(Math.random() - 0.5) * 500}px`, '--ty': `${(Math.random() - 0.5) * 500}px`,
+                   '--r': `${Math.random() * 360}deg`,
+                   '--c': ['#7B929A', '#9CAE96', '#C7A38B', '#FDE047', '#F87171'][Math.floor(Math.random()*5)],
+                   width: '10px', height: '10px', backgroundColor: 'var(--c)', borderRadius: Math.random()>0.5?'50%':'2px'
+                 }}></div>
+               ))}
+            </div>
+          )}
+
+          <main className="max-w-4xl mx-auto px-4 relative z-0">
+            {currentView === 'home' && (
+              <HomeView startQuiz={startQuiz} mistakeCount={mistakes.length} tfProgress={userProgress.tf_full} mcProgress={userProgress.mc_full} tfTotal={tfBank.length} mcTotal={mcBank.length} showModal={showModal} />
+            )}
+            {currentView === 'quiz' && quizConfig && (
+              <QuizEngine config={quizConfig} onExit={() => setCurrentView('home')} updateStats={updateStats} userStats={userStats} handleMistakeUpdate={handleMistakeUpdate} saveProgress={saveProgress} mistakes={mistakes} user={user} showModal={showModal} />
+            )}
+            {currentView === 'achievements' && (
+              <AchievementWall stats={userStats} claimed={claimedAchievements} showModal={showModal} onClaim={async (id) => {
+                  if(!user) return;
+                  await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'achievements', id), { claimedAt: new Date().toISOString() });
+                  triggerConfetti();
+                }} />
+            )}
+          </main>
+
+          <style dangerouslySetInnerHTML={{__html: `
+            @keyframes firework { 0% { transform: translate(0,0) rotate(0deg) scale(1); opacity: 1; } 100% { transform: translate(var(--tx), var(--ty)) rotate(var(--r)) scale(0); opacity: 0; } }
+            .animate-firework { animation: firework 1.5s ease-out forwards; }
+            .breathing-halo { box-shadow: 0 0 15px 5px rgba(253, 224, 71, 0.4); animation: breath 2s infinite alternate; }
+            @keyframes breath { from { box-shadow: 0 0 10px 2px rgba(253, 224, 71, 0.4); } to { box-shadow: 0 0 25px 8px rgba(253, 224, 71, 0.7); } }
+            @keyframes slide-in-right { from { transform: translateX(100%); } to { transform: translateX(0); } }
+            .animate-slide-in-right { animation: slide-in-right 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+          `}} />
+        </div>
+      );
+    }
+
+    // ==========================================
+    // 5. 子元件定義
+    // ==========================================
+    function HomeView({ startQuiz, mistakeCount, tfProgress, mcProgress, tfTotal, mcTotal, showModal }) {
+      return (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
+          <div className="bg-white rounded-[3.5rem] p-8 shadow-sm border border-[#E8E6E1] flex flex-col items-center text-center">
+            <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: `${COLORS.secondary}20` }}>
+              <BookOpen size={32} style={{ color: COLORS.secondary }} />
+            </div>
+            <h2 className="text-xl font-bold mb-2" style={{ color: COLORS.textMain }}>全題庫練習</h2>
+            <p className="mb-6 text-sm" style={{ color: COLORS.textMuted }}>依照順序，穩紮穩打完成所有題目。</p>
+            <button onClick={() => startQuiz('tf_full')} className="w-full py-4 rounded-3xl mb-3 font-medium transition-transform hover:scale-[1.02] text-white" style={{ backgroundColor: COLORS.secondary }}>是非題 ({tfProgress}/{tfTotal})</button>
+            <button onClick={() => startQuiz('mc_full')} className="w-full py-4 rounded-3xl font-medium transition-transform hover:scale-[1.02] text-white" style={{ backgroundColor: COLORS.secondary }}>選擇題 ({mcProgress}/{mcTotal})</button>
+          </div>
+          <div className="bg-white rounded-[3.5rem] p-8 shadow-sm border border-[#E8E6E1] flex flex-col items-center text-center">
+            <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: `${COLORS.primary}20` }}>
+              <Clock size={32} style={{ color: COLORS.primary }} />
+            </div>
+            <h2 className="text-xl font-bold mb-2" style={{ color: COLORS.textMain }}>隨機 20 題練習</h2>
+            <p className="mb-6 text-sm" style={{ color: COLORS.textMuted }}>打亂順序，快速檢驗學習成效。</p>
+            <button onClick={() => startQuiz('tf_random')} className="w-full py-4 rounded-3xl mb-3 font-medium transition-transform hover:scale-[1.02] text-white" style={{ backgroundColor: COLORS.primary }}>是非題隨堂測驗</button>
+            <button onClick={() => startQuiz('mc_random')} className="w-full py-4 rounded-3xl font-medium transition-transform hover:scale-[1.02] text-white" style={{ backgroundColor: COLORS.primary }}>選擇題隨堂測驗</button>
+          </div>
+          <div className="bg-white rounded-[3.5rem] p-8 shadow-sm border border-[#E8E6E1] flex flex-col items-center text-center md:col-span-2">
+            <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: `${COLORS.accent}20` }}>
+              <Star size={32} style={{ color: COLORS.accent }} />
+            </div>
+            <h2 className="text-xl font-bold mb-2" style={{ color: COLORS.textMain }}>全真模擬試題</h2>
+            <p className="mb-6 text-sm" style={{ color: COLORS.textMuted }}>是非 50 題 + 選擇 50 題，限時 100 分鐘。</p>
+            <button onClick={() => startQuiz('mock')} className="w-full max-w-md py-4 rounded-3xl font-medium transition-transform hover:scale-[1.02] text-white" style={{ backgroundColor: COLORS.accent }}>開始全真模擬</button>
+          </div>
+          <div className="bg-white rounded-[3.5rem] p-8 shadow-sm border border-[#E8E6E1] flex flex-col items-center text-center md:col-span-2">
+             <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4 bg-red-50">
+              <AlertCircle size={32} className="text-red-400" />
+            </div>
+            <h2 className="text-xl font-bold mb-2" style={{ color: COLORS.textMain }}>錯題強化練習</h2>
+            <p className="mb-6 text-sm" style={{ color: COLORS.textMuted }}>針對曾答錯的題目進行特訓。需連續答對 3 次才能移出錯題本喔！</p>
+            <button onClick={() => mistakeCount > 0 ? startQuiz('mistakes') : showModal('提示', '目前沒有錯題喔！繼續保持！')} className={`w-full max-w-md py-4 rounded-3xl font-medium transition-transform hover:scale-[1.02] ${mistakeCount > 0 ? 'bg-red-400 text-white shadow-md' : 'bg-gray-200 text-gray-500 cursor-not-allowed'}`}>進入強化庫 ({mistakeCount} 題)</button>
+          </div>
+        </div>
+      );
+    }
+
+    function QuizEngine({ config, onExit, updateStats, userStats, handleMistakeUpdate, saveProgress, mistakes, user, showModal }) {
+      const { mode, questions, timeLimit, startIndex } = config;
+      const isFullMode = mode === 'tf_full' || mode === 'mc_full';
+      
+      const [currentIndex, setCurrentIndex] = useState(startIndex || 0);
+      const [selectedAnswer, setSelectedAnswer] = useState(null);
+      const [isAnswered, setIsAnswered] = useState(false);
+      const [showExplanation, setShowExplanation] = useState(false);
+      const [isMenuOpen, setIsMenuOpen] = useState(false);
+      const [userAnswers, setUserAnswers] = useState(new Array(questions.length).fill(null));
+      const [score, setScore] = useState(0);
+      const [isFinished, setIsFinished] = useState(false);
+      const [timeLeft, setTimeLeft] = useState(timeLimit);
+      const [mockPart, setMockPart] = useState(1);
+
+      const currentQ = questions[currentIndex];
+
+      useEffect(() => {
+        if (userAnswers[currentIndex]) {
+          setSelectedAnswer(userAnswers[currentIndex].selectedAnswer);
+          setIsAnswered(true); setShowExplanation(false);
+        } else {
+          setSelectedAnswer(currentQ?.isMultiple ? [] : null);
+          setIsAnswered(false); setShowExplanation(false);
+        }
+      }, [currentIndex, currentQ]);
+
+      const isBookmarked = mistakes.some(m => m.id === currentQ?.id);
+      const toggleBookmark = async () => {
+        if (!user || !currentQ) return;
+        const mistakeRef = doc(db, 'artifacts', appId, 'users', user.uid, 'mistakes', currentQ.id);
+        if (isBookmarked) await deleteDoc(mistakeRef);
+        else await setDoc(mistakeRef, { question: currentQ.question, type: currentQ.type, answer: currentQ.answer, options: currentQ.options || null, explanation: currentQ.explanation, streak: 0, bookmarked: true, lastFailed: new Date().toISOString() }, { merge: true });
+      };
+
+      useEffect(() => {
+        if (timeLimit === null || isFinished) return;
+        const timer = setInterval(() => setTimeLeft(prev => prev - 1), 1000);
+        return () => clearInterval(timer);
+      }, [timeLimit, isFinished]);
+
+      useEffect(() => {
+        if (timeLeft <= 0 && timeLimit !== null && !isFinished) {
+          if (mode === 'mock' && mockPart === 1) {
+            setMockPart(2); setCurrentIndex(50); setTimeLeft(timeLimit);
+            showModal("時間到", "第一部分 (是非題) 時間到！系統將自動進入第二部分 (選擇題)。");
+          } else {
+            if (mode === 'mock') evaluateMockExam(); else finishQuiz();
+          }
+        }
+      }, [timeLeft, isFinished, mode, mockPart, timeLimit]);
+
+      const handleSelect = (ans) => {
+        if (isAnswered && !isFullMode && mode !== 'mock') return;
+        let newSelected;
+        if (currentQ.isMultiple) {
+          newSelected = Array.isArray(selectedAnswer) ? [...selectedAnswer] : [];
+          if (newSelected.includes(ans)) newSelected = newSelected.filter(a => a !== ans);
+          else { newSelected.push(ans); newSelected.sort(); }
+        } else newSelected = ans;
+        
+        setSelectedAnswer(newSelected);
+
+        if (mode === 'mock') {
+          const newAnswers = [...userAnswers];
+          newAnswers[currentIndex] = { selectedAnswer: newSelected };
+          setUserAnswers(newAnswers); setIsAnswered(true);
+        } else {
+          if (currentQ.type === 'tf' || !currentQ.isMultiple) processSubmit(newSelected);
+        }
+      };
+
+      const processSubmit = (ansToEval) => {
+        const evalTarget = ansToEval || selectedAnswer;
+        if (currentQ.isMultiple && (!evalTarget || evalTarget.length === 0)) return;
+        if (!currentQ.isMultiple && !evalTarget) return;
+
+        setIsAnswered(true);
+        let isCorrect = false;
+        if (currentQ.isMultiple) {
+          isCorrect = [...evalTarget].sort().join('') === currentQ.answer.split('').sort().join('');
+        } else isCorrect = evalTarget === currentQ.answer;
+        
+        const newAnswers = [...userAnswers];
+        newAnswers[currentIndex] = { isCorrect, selectedAnswer: evalTarget };
+        setUserAnswers(newAnswers);
+        if (isCorrect) setScore(s => s + 1);
+        handleMistakeUpdate(currentQ, isCorrect);
+
+        if (isFullMode) {
+          saveProgress(mode, currentIndex + 1);
+          const statKey = mode === 'tf_full' ? 'tf_full_answered' : 'mc_full_answered';
+          updateStats({ [statKey]: userStats[statKey] + 1 });
+        }
+      };
+
+      const evaluateMockExam = async () => {
+        let currentScore = 0;
+        const evaluatedAnswers = userAnswers.map((ansObj, idx) => {
+           const q = questions[idx];
+           if (!ansObj || !ansObj.selectedAnswer || ansObj.selectedAnswer.length === 0) {
+              handleMistakeUpdate(q, false); return { isCorrect: false, selectedAnswer: null };
+           }
+           let isCorrect = q.isMultiple 
+             ? [...ansObj.selectedAnswer].sort().join('') === q.answer.split('').sort().join('')
+             : ansObj.selectedAnswer === q.answer;
+           if (isCorrect) currentScore++;
+           handleMistakeUpdate(q, isCorrect);
+           return { isCorrect, selectedAnswer: ansObj.selectedAnswer };
+        });
+        setUserAnswers(evaluatedAnswers); setScore(currentScore);
+        updateStats({ mock_completed: userStats.mock_completed + 1, ...(currentScore === 100 && {mock_perfect: userStats.mock_perfect + 1}) });
+        setIsFinished(true);
+      };
+
+      const nextQuestion = () => {
+        if (mode === 'mock' && mockPart === 1 && currentIndex === 49) {
+          showModal("進入第二部分", "確定要結束是非題部分，進入選擇題嗎？進入後將無法修改是非題答案。", "confirm", () => {
+              setMockPart(2); setCurrentIndex(50); setTimeLeft(timeLimit);
+              setSelectedAnswer(userAnswers[50]?.selectedAnswer || null);
+              setIsAnswered(!!userAnswers[50]); setShowExplanation(false);
+          }); return;
+        }
+
+        if (currentIndex < questions.length - 1) {
+          setCurrentIndex(c => c + 1);
+          setSelectedAnswer(userAnswers[currentIndex + 1]?.selectedAnswer || null);
+          setIsAnswered(!!userAnswers[currentIndex + 1]); setShowExplanation(false);
+        } else {
+          if (mode === 'mock') showModal("確認交卷", "確定要交卷嗎？未作答的題目將以 0 分計算。", "confirm", () => evaluateMockExam());
+          else finishQuiz();
+        }
+      };
+
+      const prevQuestion = () => {
+        if (mode === 'mock' && mockPart === 2 && currentIndex === 50) return;
+        if (currentIndex > 0) {
+          setCurrentIndex(c => c - 1);
+          setSelectedAnswer(userAnswers[currentIndex - 1]?.selectedAnswer || null);
+          setIsAnswered(!!userAnswers[currentIndex - 1]); setShowExplanation(false);
+        }
+      };
+
+      const jumpToQuestion = (targetIndex) => {
+        if (mode === 'mock') {
+          if (mockPart === 1 && targetIndex >= 50) { showModal("提示", "這部分是選擇題，請先完成是非題部分！"); return; }
+          if (mockPart === 2 && targetIndex < 50) { showModal("提示", "是非題部分已結束，目前無法返回修改。"); return; }
+        }
+        setCurrentIndex(targetIndex);
+        setSelectedAnswer(userAnswers[targetIndex]?.selectedAnswer || null);
+        setIsAnswered(!!userAnswers[targetIndex]); setShowExplanation(false); setIsMenuOpen(false);
+      };
+
+      const finishQuiz = () => {
+        setIsFinished(true);
+        if (mode === 'tf_random') updateStats({ tf_random_completed: userStats.tf_random_completed + 1, ...(score === 20 && {tf_random_perfect: userStats.tf_random_perfect + 1}) });
+        else if (mode === 'mc_random') updateStats({ mc_random_completed: userStats.mc_random_completed + 1, ...(score === 20 && {mc_random_perfect: userStats.mc_random_perfect + 1}) });
+        else if (mode === 'mock') {
+           const finalScore = userAnswers.filter(a => a && a.isCorrect).length;
+           updateStats({ mock_completed: userStats.mock_completed + 1, ...(finalScore === 100 && {mock_perfect: userStats.mock_perfect + 1}) });
+        }
+      };
+
+      const formatTime = (seconds) => { const m = Math.floor(seconds / 60); const s = seconds % 60; return `${m}:${s < 10 ? '0' : ''}${s}`; };
+
+      const renderNavButton = (idx) => {
+        const isAnsweredLocal = !!userAnswers[idx];
+        const isCurrent = idx === currentIndex;
+        let isDisabled = (mode === 'mock' && ((mockPart === 1 && idx >= 50) || (mockPart === 2 && idx < 50)));
+        const displayNum = mode === 'mock' ? (idx < 50 ? idx + 1 : idx - 49) : idx + 1;
+        return (
+          <button key={idx} onClick={() => jumpToQuestion(idx)} disabled={isDisabled}
+            className={`w-10 h-10 md:w-12 md:h-12 rounded-2xl flex items-center justify-center font-bold text-sm transition-all ${isDisabled ? 'opacity-30 cursor-not-allowed bg-gray-100 text-gray-400' : isCurrent ? 'ring-4 ring-offset-2 scale-110 z-10' : isAnsweredLocal ? 'hover:opacity-80' : 'bg-white shadow-sm border text-gray-500 hover:bg-gray-50'}`}
+            style={{ backgroundColor: isAnsweredLocal && !isDisabled ? COLORS.secondary : undefined, color: isAnsweredLocal && !isDisabled ? 'white' : undefined, '--tw-ring-color': isCurrent ? COLORS.accent : undefined }}>
+            {displayNum}
+          </button>
+        );
+      };
+
+      if (isFinished) {
+        if (mode === 'mock') {
+          const totalCorrect = userAnswers.filter(a => a && a.isCorrect).length;
+          return (
+            <div className="bg-white rounded-[3.5rem] p-8 md:p-12 shadow-sm border border-[#E8E6E1] mt-8 max-w-5xl mx-auto">
+              <h2 className="text-3xl font-bold mb-4 text-center" style={{ color: COLORS.textMain }}>全真模擬測驗 結算報告</h2>
+              <div className="text-6xl font-black mb-10 text-center" style={{ color: COLORS.primary }}>{totalCorrect} <span className="text-2xl text-gray-400">/ 100</span></div>
+              <div className="space-y-4 mb-8 h-[60vh] overflow-y-auto pr-4 scrollbar-hide">
+                {questions.map((q, idx) => {
+                  const ans = userAnswers[idx]; const isCorrect = ans?.isCorrect;
+                  const userAnsStr = ans?.selectedAnswer && ans.selectedAnswer.length > 0 ? (Array.isArray(ans.selectedAnswer) ? ans.selectedAnswer.join('') : ans.selectedAnswer) : '未作答';
+                  return (
+                    <div key={idx} className={`p-6 rounded-3xl border-2 ${isCorrect ? 'bg-green-50/50 border-green-200' : 'bg-red-50/50 border-red-200'}`}>
+                      <div className="flex gap-4 items-start mb-3"><span className={`w-10 h-10 flex shrink-0 items-center justify-center rounded-full font-bold text-lg text-white ${isCorrect ? 'bg-green-500' : 'bg-red-500 shadow-sm'}`}>{idx + 1}</span><h4 className="text-lg font-medium text-gray-800 leading-relaxed mt-1">{q.question}</h4></div>
+                      <div className="ml-14 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm bg-white p-4 rounded-2xl border border-gray-100 shadow-sm"><div><span className="text-gray-500 mr-2">你的答案:</span><span className={`font-bold text-lg ${isCorrect ? 'text-green-600' : 'text-red-600'}`}>{userAnsStr}</span></div><div><span className="text-gray-500 mr-2">正確答案:</span><span className="font-bold text-lg text-gray-800">{q.answer}</span></div></div>
+                      {q.explanation && q.explanation !== '無解析' && (<div className="ml-14 mt-3 p-4 bg-white/60 rounded-2xl text-gray-600 text-sm border border-gray-100"><strong className="text-gray-700">解析：</strong> {q.explanation}</div>)}
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="text-center pt-6 border-t border-gray-100"><p className="mb-6" style={{ color: COLORS.textMuted }}>錯題已自動加入「錯題強化練習」庫，記得回去複習喔！</p><button onClick={onExit} className="px-10 py-4 rounded-full font-bold text-white shadow-md transition-transform hover:scale-[1.05]" style={{ backgroundColor: COLORS.secondary }}>返回首頁</button></div>
+            </div>
+          );
+        }
+        const totalCorrect = userAnswers.filter(a => a && a.isCorrect).length;
+        return (
+          <div className="bg-white rounded-[3.5rem] p-8 md:p-12 shadow-sm border border-[#E8E6E1] text-center mt-8">
+            <Trophy size={64} style={{ color: COLORS.accent }} className="mx-auto mb-6" />
+            <h2 className="text-3xl font-bold mb-4" style={{ color: COLORS.textMain }}>測驗完成！</h2>
+            <div className="text-6xl font-black mb-6" style={{ color: COLORS.primary }}>{totalCorrect} <span className="text-2xl text-gray-400">/ {questions.length}</span></div>
+            <p className="mb-8" style={{ color: COLORS.textMuted }}>錯題已自動加入「錯題強化練習」庫，記得回去複習喔！</p>
+            <button onClick={onExit} className="px-8 py-4 rounded-full font-bold text-white shadow-md transition-transform hover:scale-[1.05]" style={{ backgroundColor: COLORS.secondary }}>返回首頁</button>
+          </div>
+        );
+      }
+
+      return (
+        <div className="mt-6">
+          <div className="flex flex-wrap justify-between items-center mb-6 gap-y-4 px-2">
+            <div className="flex items-center gap-2">
+              <span className="px-4 py-1.5 rounded-full text-sm font-medium text-white shadow-sm" style={{ backgroundColor: COLORS.primary }}>{PREFIXES[mode] || '錯題練習'}</span>
+              <span className="px-4 py-1.5 rounded-full text-sm font-medium text-white shadow-sm" style={{ backgroundColor: COLORS.secondary }}>{mode === 'mock' ? `第 ${mockPart} 部分: ${mockPart === 1 ? '是非題' : '選擇題'} (${currentIndex + 1 - (mockPart === 1 ? 0 : 50)} / 50)` : `題號 ${currentIndex + 1} / ${questions.length}`}</span>
+              <button onClick={toggleBookmark} className={`ml-1 p-1.5 rounded-full transition-colors shrink-0 shadow-sm ${isBookmarked ? 'text-yellow-500 bg-white hover:text-yellow-600' : 'text-gray-400 bg-white/50 hover:text-yellow-500 hover:bg-white'}`} title={isBookmarked ? "移除書籤" : "加入書籤 (加入錯題庫)"}><Bookmark size={20} fill={isBookmarked ? "currentColor" : "none"} /></button>
+            </div>
+            <div className="flex items-center gap-2 md:gap-3 ml-auto">
+              {timeLimit !== null && <div className={`px-4 py-1.5 rounded-full text-sm font-bold shadow-sm ${timeLeft < 300 ? 'bg-red-500 text-white' : 'bg-gray-200 text-gray-700'}`}>剩餘: {formatTime(timeLeft)}</div>}
+              <button onClick={() => setIsMenuOpen(true)} className="flex items-center gap-1 px-4 py-1.5 rounded-full text-sm font-medium border-2 bg-white hover:bg-gray-50 transition-colors shadow-sm" style={{ borderColor: COLORS.border, color: COLORS.textMain }}><LayoutGrid size={16} /><span className="hidden sm:inline">題號選單</span></button>
+              <button onClick={() => { if(isFullMode) saveProgress(mode, currentIndex); onExit(); }} className="flex items-center gap-1 px-4 py-1.5 rounded-full text-sm font-medium border-2 hover:bg-gray-50 transition-colors bg-white shadow-sm" style={{ borderColor: COLORS.primary, color: COLORS.primary }}><Save size={16} /><span className="hidden sm:inline">{isFullMode ? '儲存進度並回首頁' : '中斷並回首頁'}</span></button>
+            </div>
+          </div>
+
+          {isMenuOpen && (
+            <div className="fixed inset-0 z-50 flex justify-end bg-black/30 backdrop-blur-sm transition-opacity">
+              <div className="absolute inset-0" onClick={() => setIsMenuOpen(false)}></div>
+              <div className="w-80 md:w-96 bg-[#F4F1EB] h-full shadow-2xl p-6 overflow-y-auto animate-slide-in-right flex flex-col relative">
+                <div className="flex justify-between items-center mb-6 pb-4 border-b border-[#E8E6E1]"><h3 className="text-xl font-bold" style={{ color: COLORS.textMain }}>題目總覽 <span className="text-sm font-normal text-gray-500 ml-2">點擊跳轉</span></h3><button onClick={() => setIsMenuOpen(false)} className="p-2 bg-white rounded-full hover:bg-gray-100 shadow-sm transition-colors text-gray-600"><X size={20} /></button></div>
+                <div className="flex-1 overflow-y-auto pr-2 scrollbar-hide">
+                  {mode === 'mock' ? (
+                    <><div className="mb-3 font-bold" style={{ color: COLORS.primary }}>第一部分：是非題 (1-50)</div><div className="grid grid-cols-5 gap-3 mb-8">{questions.slice(0, 50).map((q, i) => renderNavButton(i))}</div><div className="mb-3 font-bold" style={{ color: COLORS.primary }}>第二部分：選擇題 (1-50)</div><div className="grid grid-cols-5 gap-3 pb-8">{questions.slice(50, 100).map((q, i) => renderNavButton(i + 50))}</div></>
+                  ) : (<div className="grid grid-cols-5 gap-3 pb-8">{questions.map((q, i) => renderNavButton(i))}</div>)}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="bg-white rounded-[3.5rem] p-8 md:p-12 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-[#E8E6E1] relative min-h-[400px] flex flex-col">
+            <button onClick={prevQuestion} disabled={currentIndex === 0 || (mode === 'mock' && mockPart === 2 && currentIndex === 50)} className="absolute left-[-20px] md:left-[-40px] top-1/2 -translate-y-1/2 p-3 bg-white rounded-full shadow-md border border-gray-100 disabled:opacity-30 disabled:cursor-not-allowed hover:scale-110 transition-transform text-gray-500 z-10"><ChevronLeft size={28} /></button>
+            <div className="mb-10"><h3 className="text-xl md:text-2xl font-medium leading-relaxed" style={{ color: COLORS.textMain }}>{currentQ.question}</h3></div>
+            <div className="flex flex-col gap-4 mb-8">
+              {currentQ.type === 'tf' ? (
+                <div className="grid grid-cols-2 gap-4">
+                  {['O', 'X'].map((opt) => (
+                    <button key={opt} onClick={() => handleSelect(opt)} disabled={isAnswered && !isFullMode && mode !== 'mock'}
+                      className={`py-6 rounded-3xl text-2xl font-bold border-2 transition-all ${selectedAnswer === opt ? mode === 'mock' ? 'bg-blue-50 border-blue-400 text-blue-600' : isAnswered ? opt === currentQ.answer ? 'bg-green-50 border-green-500 text-green-600' : 'bg-red-50 border-red-500 text-red-600' : 'bg-blue-50 border-blue-400 text-blue-600' : isAnswered && opt === currentQ.answer && mode !== 'mock' ? 'bg-green-50 border-green-500 text-green-600 opacity-50' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'}`}>
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                currentQ.options.map((opt, idx) => {
+                  const optionLabel = String.fromCharCode(65 + idx);
+                  const isSelected = currentQ.isMultiple ? Array.isArray(selectedAnswer) && selectedAnswer.includes(optionLabel) : selectedAnswer === optionLabel;
+                  const isCorrectOpt = (currentQ.isMultiple ? currentQ.answer.split('') : [currentQ.answer]).includes(optionLabel);
+                  let btnClass = 'bg-white border-gray-200 text-gray-700 hover:border-gray-300';
+                  if (isSelected) { if (mode === 'mock') btnClass = 'bg-blue-50 border-blue-400 text-blue-700'; else if (!isAnswered) btnClass = 'bg-blue-50 border-blue-400 text-blue-700'; else if (isCorrectOpt) btnClass = 'bg-green-50 border-green-500 text-green-700 font-bold'; else btnClass = 'bg-red-50 border-red-500 text-red-700'; } 
+                  else if (isAnswered && isCorrectOpt && mode !== 'mock') btnClass = 'bg-green-50 border-green-500 text-green-700 border-dashed opacity-70';
+                  return (
+                    <button key={idx} onClick={() => handleSelect(optionLabel)} disabled={isAnswered && !isFullMode && mode !== 'mock'} className={`flex items-center text-left p-4 md:p-5 rounded-2xl border-2 transition-all ${btnClass}`}>
+                      <span className={`w-8 h-8 flex items-center justify-center mr-4 shrink-0 font-bold ${currentQ.isMultiple ? 'rounded-md' : 'rounded-full'} ${isSelected ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-500'}`}>{optionLabel}</span><span className="text-lg">{opt}</span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+            {mode === 'mock' ? (
+              <div className="flex justify-between items-center w-full border-t pt-6 border-gray-100 mt-auto">
+                <button onClick={prevQuestion} disabled={currentIndex === 0 || (mockPart === 2 && currentIndex === 50)} className="px-6 py-3 rounded-full font-bold text-gray-500 hover:bg-gray-100 transition-all disabled:opacity-30 disabled:cursor-not-allowed">上一題</button>
+                <button onClick={nextQuestion} className="px-8 py-3 rounded-full text-white font-bold transition-all shadow-md flex items-center gap-2 hover:scale-105" style={{ backgroundColor: COLORS.secondary }}>{mockPart === 1 && currentIndex === 49 ? '進入選擇題' : currentIndex === questions.length - 1 ? '完成交卷' : '下一題'} <ChevronRight size={20} /></button>
+              </div>
+            ) : (!isAnswered && !currentQ.isMultiple) ? null : (
+              <div className="flex flex-col md:flex-row justify-between items-center gap-4 border-t pt-6 border-gray-100 mt-auto">
+                 {!isAnswered ? (
+                   <button onClick={() => processSubmit(selectedAnswer)} disabled={currentQ.isMultiple ? !selectedAnswer || selectedAnswer.length === 0 : !selectedAnswer} className="w-full md:w-auto px-10 py-3 rounded-full text-white font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed" style={{ backgroundColor: COLORS.primary }}>送出答案</button>
+                 ) : (
+                   <div className="flex flex-col w-full">
+                     <div className="flex justify-between items-center w-full mb-4">
+                       <div className="flex gap-2">
+                         {userAnswers[currentIndex]?.isCorrect ? <span className="px-3 py-1 bg-green-100 text-green-700 font-bold rounded-lg">答對了！</span> : <span className="px-3 py-1 bg-red-100 text-red-700 font-bold rounded-lg">答錯囉</span>}
+                         {currentQ.explanation && currentQ.explanation !== '無解析' && <button onClick={() => setShowExplanation(!showExplanation)} className="text-sm underline text-gray-500 hover:text-gray-800">{showExplanation ? '隱藏解析' : '查看解析'}</button>}
+                       </div>
+                       <button onClick={nextQuestion} className="px-10 py-3 rounded-full text-white font-bold transition-all hover:scale-105 shadow-md flex items-center gap-2" style={{ backgroundColor: COLORS.secondary }}>{currentIndex === questions.length - 1 ? '完成測驗' : '下一題'} <ChevronRight size={20} /></button>
+                     </div>
+                     {showExplanation && <div className="bg-gray-50 p-4 rounded-xl text-gray-700 text-sm mt-2 border border-gray-200"><strong>解析：</strong> {currentQ.explanation}</div>}
+                   </div>
+                 )}
+              </div>
+            )}
+            <button onClick={nextQuestion} className="absolute right-[-20px] md:right-[-40px] top-1/2 -translate-y-1/2 p-3 bg-white rounded-full shadow-md border border-gray-100 hover:scale-110 transition-transform text-gray-500 z-10"><ChevronRight size={28} /></button>
+          </div>
+        </div>
+      );
+    }
+
+    function AchievementWall({ stats, claimed, onClaim, showModal }) {
+      const checkEligibility = (prefixKey, threshold) => {
+        if (prefixKey === 'tf_full') return stats.tf_full_answered >= threshold.full;
+        if (prefixKey === 'mc_full') return stats.mc_full_answered >= threshold.full;
+        if (prefixKey === 'tf_random') return (threshold.random && stats.tf_random_completed >= threshold.random) || (threshold.random_perfect && stats.tf_random_perfect >= threshold.random_perfect);
+        if (prefixKey === 'mc_random') return (threshold.random && stats.mc_random_completed >= threshold.random) || (threshold.random_perfect && stats.mc_random_perfect >= threshold.random_perfect);
+        if (prefixKey === 'mock') return (threshold.mock && stats.mock_completed >= threshold.mock) || (threshold.mock_perfect && stats.mock_perfect >= threshold.mock_perfect);
+        return false;
+      };
+
+      return (
+        <div className="mt-8 pb-12">
+          <div className="text-center mb-10"><h2 className="text-3xl font-bold mb-2" style={{ color: COLORS.textMain }}>成就獎章牆</h2><p style={{ color: COLORS.textMuted }}>達成門檻後，點擊發光的徽章解鎖成就！</p></div>
+          <div className="space-y-12">
+            {Object.keys(PREFIXES).map(category => (
+              <div key={category} className="bg-white rounded-[3rem] p-8 shadow-sm border border-[#E8E6E1]">
+                <h3 className="text-xl font-bold mb-6 flex items-center gap-2 border-b pb-4" style={{ color: COLORS.primary }}><Trophy size={20} /> {PREFIXES[category]} 系列</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                  {ACHIEVEMENT_TIERS.map(tier => {
+                    const achieveId = `${category}_${tier.id}`;
+                    const isClaimed = claimed.includes(achieveId);
+                    const isClaimable = checkEligibility(category, tier.threshold) && !isClaimed;
+                    const handleTrophyClick = () => {
+                      if (isClaimable) onClaim(achieveId);
+                      else if (!isClaimed) {
+                        let reqText = ""; const th = tier.threshold; const prefix = PREFIXES[category];
+                        if (category.includes('full')) reqText = `在「${prefix}」中，累積作答達 ${th.full} 題。`;
+                        else if (category.includes('random')) reqText = th.random_perfect ? `在「${prefix}」中，獲得 ${th.random_perfect} 次滿分。` : `在「${prefix}」中，完成 ${th.random} 次測驗。`;
+                        else if (category === 'mock') reqText = th.mock_perfect ? `在「全真模擬測驗」中，獲得 ${th.mock_perfect} 次滿分。` : `完成 ${th.mock} 次全真模擬測驗。`;
+                        showModal(`解鎖條件：${tier.name}`, reqText);
+                      } else showModal(`成就已達成：${tier.name}`, "太棒了！你已經獲得這個成就徽章囉！繼續保持！");
+                    };
+
+                    return (
+                      <div key={achieveId} className="flex flex-col items-center">
+                        <button onClick={handleTrophyClick} className={`w-24 h-24 rounded-full flex items-center justify-center mb-3 transition-all duration-300 relative ${isClaimed ? tier.color + ' shadow-lg scale-100 text-white cursor-pointer hover:scale-105' : isClaimable ? 'bg-gray-200 cursor-pointer breathing-halo hover:scale-105' : 'bg-gray-100 opacity-60 cursor-pointer hover:opacity-100 hover:scale-105'}`}>
+                          {isClaimed ? <Star size={40} className="drop-shadow-md" fill="currentColor" /> : isClaimable ? <div className="text-yellow-600 font-bold text-sm">點擊領取</div> : <Trophy size={32} className="text-gray-400" />}
+                        </button>
+                        <div className="text-center">
+                          <div className={`font-bold text-sm ${isClaimed ? 'text-gray-800' : 'text-gray-400'}`}>{tier.name}</div>
+                          <div className="text-xs text-gray-400 mt-1">
+                             {category.includes('full') && `累積 ${tier.threshold.full} 題`}
+                             {category.includes('random') && tier.threshold.random && `完成 ${tier.threshold.random} 次`}
+                             {category.includes('random') && tier.threshold.random_perfect && `滿分 ${tier.threshold.random_perfect} 次`}
+                             {category === 'mock' && tier.threshold.mock && `完成 ${tier.threshold.mock} 次`}
+                             {category === 'mock' && tier.threshold.mock_perfect && `滿分 ${tier.threshold.mock_perfect} 次`}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // 將 React 應用渲染到畫面上
+    const root = createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
 </body>
 </html>
