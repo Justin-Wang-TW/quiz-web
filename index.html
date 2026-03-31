@@ -11,7 +11,7 @@
   <!-- 引入 Babel 讓瀏覽器可以直接看懂 React (JSX) 語法 -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  <!-- Tailwind 擴充設定 (用於隱藏卷軸) -->
+  <!-- Tailwind 擴充設定與動畫 -->
   <style>
     .scrollbar-hide::-webkit-scrollbar { display: none; }
     .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
@@ -27,7 +27,7 @@
     import React, { useState, useEffect, useRef } from 'https://esm.sh/react@18.2.0';
     import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
     
-    // 引入 Firebase 雲端服務 (改用 Google 官方穩定的 CDN)
+    // 引入 Firebase 雲端服務
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js';
     import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js';
     import { getFirestore, collection, doc, setDoc, getDoc, updateDoc, deleteDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js';
@@ -36,47 +36,46 @@
     import { BookOpen, CheckSquare, Clock, Trophy, Home, ChevronLeft, ChevronRight, Bookmark, AlertCircle, Play, X, Star, Save, LayoutGrid } from 'https://esm.sh/lucide-react@0.344.0';
 
     // ==========================================
-    // 1. Firebase 初始化設定 (★ 若在本機執行，請填寫你的金鑰 ★)
+    // 1. Firebase 初始化設定
     // ==========================================
     const fallbackConfig = {
-      apiKey: "AIzaSyCS9aa4aAL7Qw2rPQdnfx-zYgA575YllVw",
-      authDomain: "quiz-db627.firebaseapp.com",
-      projectId: "quiz-db627",
-      storageBucket: "quiz-db627.firebasestorage.app",
-      messagingSenderId: "613549084178",
-      appId: "1:613549084178:web:5df7a4036aa586a66a92cb"
+      apiKey: "請替換為你的_apiKey",
+      authDomain: "請替換為你的_authDomain",
+      projectId: "請替換為你的_projectId",
+      storageBucket: "請替換為你的_storageBucket",
+      messagingSenderId: "請替換為你的_messagingSenderId",
+      appId: "請替換為你的_appId"
     };
     
-    // 自動偵測：若在線上預覽環境，自動套用環境變數；若在你的電腦上，則使用上方的 fallbackConfig
     const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : fallbackConfig;
-    
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
     const appId = typeof __app_id !== 'undefined' ? __app_id : "street-quiz";
 
     // ==========================================
-    // 2. 顏色與成就設定檔 (莫蘭迪色系)
+    // 2. 顏色與成就設定檔
     // ==========================================
     const COLORS = {
       bg: '#F4F1EB', cardBg: '#FFFFFF', primary: '#7B929A', secondary: '#9CAE96', 
       accent: '#C7A38B', textMain: '#4A4A4A', textMuted: '#8A8A8A', border: '#E8E6E1',
     };
 
+    // 擴充 textColor 以便在慶祝視窗中顯示對應顏色的文字
     const ACHIEVEMENT_TIERS = [
-      { id: 't1', name: '初心者', color: 'bg-gray-400', threshold: { full: 50, random: 1, mock: 1 } },
-      { id: 't2', name: '入門者', color: 'bg-green-500', threshold: { full: 100, random: 3, mock: 2 } },
-      { id: 't3', name: '一階小雞蛋', color: 'bg-blue-400', threshold: { full: 150, random: 5, mock: 3 } },
-      { id: 't4', name: '二階半熟蛋', color: 'bg-yellow-500', threshold: { full: 200, random: 7, mock: 4 } },
-      { id: 't5', name: '三階帶殼小雞', color: 'bg-purple-500', threshold: { full: 250, random: 10, mock: 5 } },
-      { id: 't6', name: '四階地走雞', color: 'bg-red-500', threshold: { full: 280, random_perfect: 1, mock: 6 } },
-      { id: 't7', name: '五階咕咕雞', color: 'bg-gradient-to-r from-red-400 via-yellow-400 to-blue-400', threshold: { full: 560, random_perfect: 2, mock_perfect: 1 } },
+      { id: 't1', name: '初心者', color: 'bg-gray-400', textColor: 'text-gray-500', threshold: { full: 50, random: 1, mock: 1 } },
+      { id: 't2', name: '入門者', color: 'bg-green-500', textColor: 'text-green-500', threshold: { full: 100, random: 3, mock: 2 } },
+      { id: 't3', name: '一階小雞蛋', color: 'bg-blue-400', textColor: 'text-blue-500', threshold: { full: 150, random: 5, mock: 3 } },
+      { id: 't4', name: '二階半熟蛋', color: 'bg-yellow-500', textColor: 'text-yellow-500', threshold: { full: 200, random: 7, mock: 4 } },
+      { id: 't5', name: '三階帶殼小雞', color: 'bg-purple-500', textColor: 'text-purple-500', threshold: { full: 250, random: 10, mock: 5 } },
+      { id: 't6', name: '四階地走雞', color: 'bg-red-500', textColor: 'text-red-500', threshold: { full: 280, random_perfect: 1, mock: 6 } },
+      { id: 't7', name: '五階咕咕雞', color: 'bg-gradient-to-r from-red-400 via-yellow-400 to-blue-400', textColor: 'text-transparent bg-clip-text bg-gradient-to-r from-red-400 via-yellow-400 to-blue-400', threshold: { full: 560, random_perfect: 2, mock_perfect: 1 } },
     ];
 
     const PREFIXES = { tf_full: '是非題全題庫', mc_full: '選擇題全題庫', tf_random: '是非題隨堂測驗', mc_random: '選擇題隨堂測驗', mock: '模擬測驗' };
 
     // ==========================================
-    // 3. 工具函式
+    // 3. 工具函式與全域邏輯
     // ==========================================
     const parseCSV = (text) => {
       const result = [];
@@ -109,6 +108,17 @@
       return newArr;
     };
 
+    // 共用的成就資格驗證器 (用於即時偵測與獎章牆)
+    const checkEligibility = (stats, prefixKey, threshold) => {
+      if (!stats) return false;
+      if (prefixKey === 'tf_full') return stats.tf_full_answered >= threshold.full;
+      if (prefixKey === 'mc_full') return stats.mc_full_answered >= threshold.full;
+      if (prefixKey === 'tf_random') return (threshold.random && stats.tf_random_completed >= threshold.random) || (threshold.random_perfect && stats.tf_random_perfect >= threshold.random_perfect);
+      if (prefixKey === 'mc_random') return (threshold.random && stats.mc_random_completed >= threshold.random) || (threshold.random_perfect && stats.mc_random_perfect >= threshold.random_perfect);
+      if (prefixKey === 'mock') return (threshold.mock && stats.mock_completed >= threshold.mock) || (threshold.mock_perfect && stats.mock_perfect >= threshold.mock_perfect);
+      return false;
+    };
+
     // ==========================================
     // 4. 核心 App 元件
     // ==========================================
@@ -131,11 +141,13 @@
 
       const [quizConfig, setQuizConfig] = useState(null);
       const [showConfetti, setShowConfetti] = useState(false);
+      
+      // 新增：華麗成就動畫隊列
+      const [achievementQueue, setAchievementQueue] = useState([]);
 
       useEffect(() => {
         const initAuth = async () => {
           try {
-            // 加入安全驗證，支援預覽環境的自訂金鑰或匿名登入
             if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
               await signInWithCustomToken(auth, __initial_auth_token);
             } else {
@@ -143,7 +155,6 @@
             }
           } catch (error) {
             console.error("Auth error:", error);
-            // 即使認證失敗(例如金鑰尚未填寫)，也強制關閉載入畫面讓使用者看到 UI
             setLoading(false);
           }
         };
@@ -238,11 +249,30 @@
         return () => { unsubMistakes(); unsubAchievements(); };
       }, [user]);
 
+      // 更新進度並即時偵測是否有新成就解鎖
       const updateStats = async (newStatsUpdates) => {
         if (!user) return;
-        const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data');
         const updatedStats = { ...userStats, ...newStatsUpdates };
+        
+        // 偵測剛達成的成就
+        const newlyUnlocked = [];
+        Object.keys(PREFIXES).forEach(category => {
+          ACHIEVEMENT_TIERS.forEach(tier => {
+            const wasEligible = checkEligibility(userStats, category, tier.threshold);
+            const isEligible = checkEligibility(updatedStats, category, tier.threshold);
+            // 如果原本沒有資格，現在有了，就推入華麗動畫佇列
+            if (!wasEligible && isEligible) {
+              newlyUnlocked.push({ category, tier });
+            }
+          });
+        });
+
+        if (newlyUnlocked.length > 0) {
+          setAchievementQueue(prev => [...prev, ...newlyUnlocked]);
+        }
+
         setUserStats(updatedStats);
+        const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data');
         try {
           await setDoc(userDocRef, { stats: updatedStats }, { merge: true });
         } catch (e) { console.error(e); }
@@ -339,6 +369,7 @@
             </div>
           </header>
 
+          {/* 一般訊息 Modal */}
           {modalConfig && (
             <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm">
               <div className="bg-white rounded-3xl p-8 max-w-sm w-full mx-4 shadow-2xl">
@@ -358,6 +389,15 @@
             </div>
           )}
 
+          {/* 全畫面華麗成就解鎖動畫 (Celebration Overlay) */}
+          {achievementQueue.length > 0 && (
+            <CelebrationOverlay 
+              unlock={achievementQueue[0]} 
+              onClose={() => setAchievementQueue(prev => prev.slice(1))} 
+            />
+          )}
+
+          {/* 獎章牆手動領取的簡易煙火 */}
           {showConfetti && (
             <div className="fixed inset-0 pointer-events-none z-50 flex items-center justify-center overflow-hidden">
                {[...Array(30)].map((_, i) => (
@@ -380,14 +420,16 @@
               <QuizEngine config={quizConfig} onExit={() => setCurrentView('home')} updateStats={updateStats} userStats={userStats} handleMistakeUpdate={handleMistakeUpdate} saveProgress={saveProgress} mistakes={mistakes} user={user} showModal={showModal} />
             )}
             {currentView === 'achievements' && (
-              <AchievementWall stats={userStats} claimed={claimedAchievements} showModal={showModal} onClaim={async (id) => {
+              <AchievementWall stats={userStats} claimed={claimedAchievements} showModal={showModal} onClaim={async (id, category, tier) => {
                   if(!user) return;
                   await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'achievements', id), { claimedAt: new Date().toISOString() });
-                  triggerConfetti();
+                  // 領取時，將成就推入華麗動畫隊列，並標記為 isClaiming
+                  setAchievementQueue(prev => [...prev, { category, tier, isClaiming: true }]);
                 }} />
             )}
           </main>
 
+          {/* 全局動畫 CSS 定義 */}
           <style dangerouslySetInnerHTML={{__html: `
             @keyframes firework { 0% { transform: translate(0,0) rotate(0deg) scale(1); opacity: 1; } 100% { transform: translate(var(--tx), var(--ty)) rotate(var(--r)) scale(0); opacity: 0; } }
             .animate-firework { animation: firework 1.5s ease-out forwards; }
@@ -395,6 +437,29 @@
             @keyframes breath { from { box-shadow: 0 0 10px 2px rgba(253, 224, 71, 0.4); } to { box-shadow: 0 0 25px 8px rgba(253, 224, 71, 0.7); } }
             @keyframes slide-in-right { from { transform: translateX(100%); } to { transform: translateX(0); } }
             .animate-slide-in-right { animation: slide-in-right 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+
+            /* 新增：華麗慶祝專屬動畫 */
+            @keyframes pop-in { 0% { transform: scale(0.5); opacity: 0; } 70% { transform: scale(1.05); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+            .animate-pop-in { animation: pop-in 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+            
+            @keyframes shoot-left { 0% { transform: translate(0, 0) rotate(0deg) scale(1); opacity: 1; } 100% { transform: translate(var(--tx), var(--ty)) rotate(var(--r)) scale(0.6); opacity: 0; } }
+            .animate-confetti-left { animation: shoot-left 2.5s ease-out forwards; }
+            
+            @keyframes shoot-right { 0% { transform: translate(0, 0) rotate(0deg) scale(1); opacity: 1; } 100% { transform: translate(var(--tx), var(--ty)) rotate(var(--r)) scale(0.6); opacity: 0; } }
+            .animate-confetti-right { animation: shoot-right 2.5s ease-out forwards; }
+
+            @keyframes bounce-slow { 0%, 100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, -15px); } }
+            .animate-bounce-slow { animation: bounce-slow 3s infinite ease-in-out; }
+
+            @keyframes sparkle { 0%, 100% { opacity: 0; transform: scale(0) rotate(0deg); } 50% { opacity: 1; transform: scale(1) rotate(180deg); } }
+            .animate-sparkle { animation: sparkle 2s infinite ease-in-out; }
+
+            /* 新增：金黃星星閃爍發光動畫 */
+            @keyframes star-glow { 
+              0%, 100% { transform: scale(1); filter: drop-shadow(0 0 5px rgba(253, 224, 71, 0.6)); } 
+              50% { transform: scale(1.15); filter: drop-shadow(0 0 15px rgba(253, 224, 71, 1)); } 
+            }
+            .animate-star-glow { animation: star-glow 2s infinite ease-in-out; }
           `}} />
         </div>
       );
@@ -403,6 +468,90 @@
     // ==========================================
     // 5. 子元件定義
     // ==========================================
+
+    // 新增：華麗成就解鎖動畫圖層 (Celebration Overlay)
+    function CelebrationOverlay({ unlock, onClose }) {
+      const { category, tier } = unlock;
+      return (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-sm overflow-hidden">
+          
+          {/* 左下角噴發彩帶 */}
+          <div className="absolute bottom-0 left-0 w-10 h-10 pointer-events-none">
+            {[...Array(50)].map((_, i) => (
+              <div key={`lc-${i}`} className="absolute bottom-0 left-0 w-3 h-4 animate-confetti-left" style={{
+                '--tx': `${Math.random() * 60 + 10}vw`,
+                '--ty': `-${Math.random() * 80 + 30}vh`,
+                '--r': `${Math.random() * 720}deg`,
+                backgroundColor: ['#7B929A', '#9CAE96', '#C7A38B', '#FDE047', '#F87171', '#60A5FA'][Math.floor(Math.random()*6)],
+                clipPath: Math.random() > 0.5 ? 'polygon(50% 0%, 0% 100%, 100% 100%)' : 'none',
+                borderRadius: Math.random() > 0.5 ? '50%' : '2px'
+              }}></div>
+            ))}
+          </div>
+
+          {/* 右下角噴發彩帶 */}
+          <div className="absolute bottom-0 right-0 w-10 h-10 pointer-events-none">
+            {[...Array(50)].map((_, i) => (
+              <div key={`rc-${i}`} className="absolute bottom-0 right-0 w-3 h-4 animate-confetti-right" style={{
+                '--tx': `-${Math.random() * 60 + 10}vw`,
+                '--ty': `-${Math.random() * 80 + 30}vh`,
+                '--r': `${Math.random() * 720}deg`,
+                backgroundColor: ['#7B929A', '#9CAE96', '#C7A38B', '#FDE047', '#F87171', '#60A5FA'][Math.floor(Math.random()*6)],
+                clipPath: Math.random() > 0.5 ? 'polygon(50% 0%, 0% 100%, 100% 100%)' : 'none',
+                borderRadius: Math.random() > 0.5 ? '50%' : '2px'
+              }}></div>
+            ))}
+          </div>
+
+          {/* 背景煙火 (多發齊放) */}
+          {[...Array(4)].map((_, i) => (
+            <div key={`fw-${i}`} className="absolute pointer-events-none" style={{
+               left: `${15 + Math.random() * 70}%`,
+               top: `${10 + Math.random() * 40}%`,
+            }}>
+               {[...Array(25)].map((_, j) => (
+                 <div key={`fwp-${j}`} className="absolute animate-firework w-2 h-2 rounded-full" style={{
+                   '--tx': `${(Math.random() - 0.5) * 300}px`,
+                   '--ty': `${(Math.random() - 0.5) * 300}px`,
+                   '--r': '0deg',
+                   backgroundColor: ['#FDE047', '#F87171', '#60A5FA', '#34D399'][Math.floor(Math.random()*4)],
+                   animationDelay: `${i * 0.3}s`,
+                   animationDuration: '1.5s'
+                 }}></div>
+               ))}
+            </div>
+          ))}
+
+          {/* 中央成就解鎖彈窗 */}
+          <div className="bg-white rounded-[3rem] p-10 px-12 text-center shadow-[0_0_60px_rgba(0,0,0,0.3)] animate-pop-in relative z-10 max-w-sm mx-4 mt-16">
+            
+            {/* 閃閃發光且擁有等級專屬顏色的巨大獎盃 */}
+            <div className={`absolute -top-20 left-1/2 -translate-x-1/2 w-36 h-36 rounded-full flex items-center justify-center animate-bounce-slow shadow-[0_10px_40px_rgba(0,0,0,0.2)] border-4 border-white ${tier.color}`}>
+              <Trophy size={64} className="text-white drop-shadow-md" />
+              {/* 獎盃旁邊的 CSS 閃爍星星特效 */}
+              <Star size={28} className="absolute -top-2 -right-4 text-yellow-300 animate-sparkle" fill="currentColor" />
+              <Star size={18} className="absolute bottom-6 -left-6 text-yellow-300 animate-sparkle" fill="currentColor" style={{ animationDelay: '0.7s' }} />
+              <Star size={12} className="absolute top-1/2 -right-6 text-white animate-sparkle" fill="currentColor" style={{ animationDelay: '1.2s' }} />
+            </div>
+            
+            <h2 className="text-2xl font-black mt-14 mb-2" style={{ color: '#4A4A4A' }}>
+              {unlock.isClaiming ? '成功領取成就！' : '解鎖新成就門檻！'}
+            </h2>
+            <p className="text-gray-500 mb-4 font-medium">
+              {PREFIXES[category]}
+            </p>
+            <div className={`text-4xl font-black mb-8 ${tier.textColor || 'text-gray-800'}`}>
+               {tier.name}
+            </div>
+            
+            <button onClick={onClose} className="w-full py-4 rounded-full text-white font-bold text-lg hover:scale-105 transition-transform shadow-md" style={{ backgroundColor: '#9CAE96' }}>
+              {unlock.isClaiming ? '太棒了！' : '繼續答題'}
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     function HomeView({ startQuiz, mistakeCount, tfProgress, mcProgress, tfTotal, mcTotal, showModal }) {
       return (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
@@ -747,15 +896,6 @@
     }
 
     function AchievementWall({ stats, claimed, onClaim, showModal }) {
-      const checkEligibility = (prefixKey, threshold) => {
-        if (prefixKey === 'tf_full') return stats.tf_full_answered >= threshold.full;
-        if (prefixKey === 'mc_full') return stats.mc_full_answered >= threshold.full;
-        if (prefixKey === 'tf_random') return (threshold.random && stats.tf_random_completed >= threshold.random) || (threshold.random_perfect && stats.tf_random_perfect >= threshold.random_perfect);
-        if (prefixKey === 'mc_random') return (threshold.random && stats.mc_random_completed >= threshold.random) || (threshold.random_perfect && stats.mc_random_perfect >= threshold.random_perfect);
-        if (prefixKey === 'mock') return (threshold.mock && stats.mock_completed >= threshold.mock) || (threshold.mock_perfect && stats.mock_perfect >= threshold.mock_perfect);
-        return false;
-      };
-
       return (
         <div className="mt-8 pb-12">
           <div className="text-center mb-10"><h2 className="text-3xl font-bold mb-2" style={{ color: COLORS.textMain }}>成就獎章牆</h2><p style={{ color: COLORS.textMuted }}>達成門檻後，點擊發光的徽章解鎖成就！</p></div>
@@ -767,9 +907,9 @@
                   {ACHIEVEMENT_TIERS.map(tier => {
                     const achieveId = `${category}_${tier.id}`;
                     const isClaimed = claimed.includes(achieveId);
-                    const isClaimable = checkEligibility(category, tier.threshold) && !isClaimed;
+                    const isClaimable = checkEligibility(stats, category, tier.threshold) && !isClaimed;
                     const handleTrophyClick = () => {
-                      if (isClaimable) onClaim(achieveId);
+                      if (isClaimable) onClaim(achieveId, category, tier);
                       else if (!isClaimed) {
                         let reqText = ""; const th = tier.threshold; const prefix = PREFIXES[category];
                         if (category.includes('full')) reqText = `在「${prefix}」中，累積作答達 ${th.full} 題。`;
@@ -782,7 +922,7 @@
                     return (
                       <div key={achieveId} className="flex flex-col items-center">
                         <button onClick={handleTrophyClick} className={`w-24 h-24 rounded-full flex items-center justify-center mb-3 transition-all duration-300 relative ${isClaimed ? tier.color + ' shadow-lg scale-100 text-white cursor-pointer hover:scale-105' : isClaimable ? 'bg-gray-200 cursor-pointer breathing-halo hover:scale-105' : 'bg-gray-100 opacity-60 cursor-pointer hover:opacity-100 hover:scale-105'}`}>
-                          {isClaimed ? <Star size={40} className="drop-shadow-md" fill="currentColor" /> : isClaimable ? <div className="text-yellow-600 font-bold text-sm">點擊領取</div> : <Trophy size={32} className="text-gray-400" />}
+                          {isClaimed ? <Star size={40} className="text-yellow-300 animate-star-glow" fill="currentColor" /> : isClaimable ? <div className="text-yellow-600 font-bold text-sm">點擊領取</div> : <Trophy size={32} className="text-gray-400" />}
                         </button>
                         <div className="text-center">
                           <div className={`font-bold text-sm ${isClaimed ? 'text-gray-800' : 'text-gray-400'}`}>{tier.name}</div>
