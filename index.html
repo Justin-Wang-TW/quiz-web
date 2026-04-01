@@ -61,15 +61,15 @@
       accent: '#C7A38B', textMain: '#4A4A4A', textMuted: '#8A8A8A', border: '#E8E6E1',
     };
 
-    // 擴充 textColor 以便在慶祝視窗中顯示對應顏色的文字
+    // 擴充 stars 與專屬發光顏色類別 glowClass
     const ACHIEVEMENT_TIERS = [
-      { id: 't1', name: '初心者', color: 'bg-gray-400', textColor: 'text-gray-500', threshold: { full: 50, random: 1, mock: 1 } },
-      { id: 't2', name: '入門者', color: 'bg-green-500', textColor: 'text-green-500', threshold: { full: 100, random: 3, mock: 2 } },
-      { id: 't3', name: '一階小雞蛋', color: 'bg-blue-400', textColor: 'text-blue-500', threshold: { full: 150, random: 5, mock: 3 } },
-      { id: 't4', name: '二階半熟蛋', color: 'bg-yellow-500', textColor: 'text-yellow-500', threshold: { full: 200, random: 7, mock: 4 } },
-      { id: 't5', name: '三階帶殼小雞', color: 'bg-purple-500', textColor: 'text-purple-500', threshold: { full: 250, random: 10, mock: 5 } },
-      { id: 't6', name: '四階地走雞', color: 'bg-red-500', textColor: 'text-red-500', threshold: { full: 280, random_perfect: 1, mock: 6 } },
-      { id: 't7', name: '五階咕咕雞', color: 'bg-gradient-to-r from-red-400 via-yellow-400 to-blue-400', textColor: 'text-transparent bg-clip-text bg-gradient-to-r from-red-400 via-yellow-400 to-blue-400', threshold: { full: 560, random_perfect: 2, mock_perfect: 1 } },
+      { id: 't1', name: '初心者', stars: 1, glowClass: 'gray', textColor: 'text-gray-500', threshold: { full: 50, random: 1, mock: 1 } },
+      { id: 't2', name: '入門者', stars: 2, glowClass: 'green', textColor: 'text-green-500', threshold: { full: 100, random: 3, mock: 2 } },
+      { id: 't3', name: '一階小雞蛋', stars: 3, glowClass: 'blue', textColor: 'text-blue-500', threshold: { full: 150, random: 5, mock: 3 } },
+      { id: 't4', name: '二階半熟蛋', stars: 4, glowClass: 'yellow', textColor: 'text-yellow-500', threshold: { full: 200, random: 7, mock: 4 } },
+      { id: 't5', name: '三階帶殼小雞', stars: 5, glowClass: 'purple', textColor: 'text-purple-500', threshold: { full: 250, random: 10, mock: 5 } },
+      { id: 't6', name: '四階地走雞', stars: 6, glowClass: 'red', textColor: 'text-red-500', threshold: { full: 280, random_perfect: 1, mock: 6 } },
+      { id: 't7', name: '五階咕咕雞', stars: 7, glowClass: 'rainbow', textColor: 'text-transparent bg-clip-text bg-gradient-to-r from-red-400 via-yellow-400 to-blue-400', threshold: { full: 560, random_perfect: 2, mock_perfect: 1 } },
     ];
 
     const PREFIXES = { tf_full: '是非題全題庫', mc_full: '選擇題全題庫', tf_random: '是非題隨堂測驗', mc_random: '選擇題隨堂測驗', mock: '模擬測驗' };
@@ -423,7 +423,7 @@
               <AchievementWall stats={userStats} claimed={claimedAchievements} showModal={showModal} onClaim={async (id, category, tier) => {
                   if(!user) return;
                   await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'achievements', id), { claimedAt: new Date().toISOString() });
-                  // 領取時，將成就推入華麗動畫隊列，並標記為 isClaiming
+                  // 領取時，將成就推入華麗動畫隊列
                   setAchievementQueue(prev => [...prev, { category, tier, isClaiming: true }]);
                 }} />
             )}
@@ -433,12 +433,10 @@
           <style dangerouslySetInnerHTML={{__html: `
             @keyframes firework { 0% { transform: translate(0,0) rotate(0deg) scale(1); opacity: 1; } 100% { transform: translate(var(--tx), var(--ty)) rotate(var(--r)) scale(0); opacity: 0; } }
             .animate-firework { animation: firework 1.5s ease-out forwards; }
-            .breathing-halo { box-shadow: 0 0 15px 5px rgba(253, 224, 71, 0.4); animation: breath 2s infinite alternate; }
-            @keyframes breath { from { box-shadow: 0 0 10px 2px rgba(253, 224, 71, 0.4); } to { box-shadow: 0 0 25px 8px rgba(253, 224, 71, 0.7); } }
             @keyframes slide-in-right { from { transform: translateX(100%); } to { transform: translateX(0); } }
             .animate-slide-in-right { animation: slide-in-right 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
 
-            /* 新增：華麗慶祝專屬動畫 */
+            /* 華麗慶祝專屬動畫 */
             @keyframes pop-in { 0% { transform: scale(0.5); opacity: 0; } 70% { transform: scale(1.05); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
             .animate-pop-in { animation: pop-in 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
             
@@ -454,12 +452,35 @@
             @keyframes sparkle { 0%, 100% { opacity: 0; transform: scale(0) rotate(0deg); } 50% { opacity: 1; transform: scale(1) rotate(180deg); } }
             .animate-sparkle { animation: sparkle 2s infinite ease-in-out; }
 
-            /* 新增：金黃星星閃爍發光動畫 */
             @keyframes star-glow { 
               0%, 100% { transform: scale(1); filter: drop-shadow(0 0 5px rgba(253, 224, 71, 0.6)); } 
               50% { transform: scale(1.15); filter: drop-shadow(0 0 15px rgba(253, 224, 71, 1)); } 
             }
             .animate-star-glow { animation: star-glow 2s infinite ease-in-out; }
+
+            /* 龍珠發光動畫 (依據等級顏色) */
+            @keyframes glow-gray { 0%, 100% { filter: drop-shadow(0 0 8px rgba(156,163,175,0.6)); } 50% { filter: drop-shadow(0 0 20px rgba(156,163,175,1)); } }
+            @keyframes glow-green { 0%, 100% { filter: drop-shadow(0 0 8px rgba(34,197,94,0.6)); } 50% { filter: drop-shadow(0 0 20px rgba(34,197,94,1)); } }
+            @keyframes glow-blue { 0%, 100% { filter: drop-shadow(0 0 8px rgba(56,189,248,0.6)); } 50% { filter: drop-shadow(0 0 20px rgba(56,189,248,1)); } }
+            @keyframes glow-yellow { 0%, 100% { filter: drop-shadow(0 0 8px rgba(234,179,8,0.6)); } 50% { filter: drop-shadow(0 0 20px rgba(234,179,8,1)); } }
+            @keyframes glow-purple { 0%, 100% { filter: drop-shadow(0 0 8px rgba(168,85,247,0.6)); } 50% { filter: drop-shadow(0 0 20px rgba(168,85,247,1)); } }
+            @keyframes glow-red { 0%, 100% { filter: drop-shadow(0 0 8px rgba(239,68,68,0.6)); } 50% { filter: drop-shadow(0 0 20px rgba(239,68,68,1)); } }
+            @keyframes glow-rainbow { 
+              0% { filter: drop-shadow(0 0 20px rgba(239,68,68,0.9)); } 
+              20% { filter: drop-shadow(0 0 20px rgba(234,179,8,0.9)); } 
+              40% { filter: drop-shadow(0 0 20px rgba(34,197,94,0.9)); } 
+              60% { filter: drop-shadow(0 0 20px rgba(56,189,248,0.9)); } 
+              80% { filter: drop-shadow(0 0 20px rgba(168,85,247,0.9)); } 
+              100% { filter: drop-shadow(0 0 20px rgba(239,68,68,0.9)); } 
+            }
+
+            .glow-gray { animation: glow-gray 2s infinite ease-in-out; }
+            .glow-green { animation: glow-green 2s infinite ease-in-out; }
+            .glow-blue { animation: glow-blue 2s infinite ease-in-out; }
+            .glow-yellow { animation: glow-yellow 2s infinite ease-in-out; }
+            .glow-purple { animation: glow-purple 2s infinite ease-in-out; }
+            .glow-red { animation: glow-red 2s infinite ease-in-out; }
+            .glow-rainbow { animation: glow-rainbow 3s infinite linear; }
           `}} />
         </div>
       );
@@ -469,7 +490,55 @@
     // 5. 子元件定義
     // ==========================================
 
-    // 新增：華麗成就解鎖動畫圖層 (Celebration Overlay)
+    // 新增：七龍珠 SVG 繪製元件 (依據星數決定排版)
+    function DragonBall({ stars, size = 80, isGrayscale = false }) {
+      // 1-7星的座標分佈 (以 100x100 的 viewBox 為基準)
+      const starPositions = {
+        1: [[50, 50]],
+        2: [[35, 50], [65, 50]],
+        3: [[50, 35], [35, 65], [65, 65]],
+        4: [[35, 35], [65, 35], [35, 65], [65, 65]],
+        5: [[50, 50], [25, 35], [75, 35], [35, 70], [65, 70]],
+        6: [[35, 25], [65, 25], [20, 50], [80, 50], [35, 75], [65, 75]],
+        7: [[50, 20], [25, 40], [75, 40], [25, 70], [75, 70], [50, 55], [50, 85]]
+      };
+      
+      const positions = starPositions[stars] || starPositions[1];
+
+      return (
+        <svg width={size} height={size} viewBox="0 0 100 100" style={{ filter: isGrayscale ? 'grayscale(100%) opacity(0.5)' : 'none', transition: 'all 0.3s' }}>
+          <defs>
+            <radialGradient id="ballGrad" cx="35%" cy="35%" r="65%">
+              <stop offset="0%" stopColor="#ffeba6" />
+              <stop offset="25%" stopColor="#f59e0b" />
+              <stop offset="75%" stopColor="#ea580c" />
+              <stop offset="100%" stopColor="#9a3412" />
+            </radialGradient>
+            <radialGradient id="highlight" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="white" stopOpacity="0.7" />
+              <stop offset="100%" stopColor="white" stopOpacity="0" />
+            </radialGradient>
+          </defs>
+          
+          {/* 橘黃色龍珠本體 */}
+          <circle cx="50" cy="50" r="48" fill="url(#ballGrad)" />
+          
+          {/* 玻璃反光質感 */}
+          <ellipse cx="32" cy="25" rx="20" ry="12" fill="url(#highlight)" transform="rotate(-30 32 25)" />
+          
+          {/* 內部紅色星星 */}
+          {positions.map((pos, i) => (
+             <path key={i} 
+               d="M0 -6 L1.4 -1.8 L6 -1.8 L2.3 1 L3.6 5.5 L0 3 L-3.6 5.5 L-2.3 1 L-6 -1.8 L-1.4 -1.8 Z"
+               fill="#dc2626" 
+               transform={`translate(${pos[0]}, ${pos[1]}) scale(1.6)`} 
+             />
+          ))}
+        </svg>
+      );
+    }
+
+    // 華麗成就解鎖動畫圖層 (Celebration Overlay)
     function CelebrationOverlay({ unlock, onClose }) {
       const { category, tier } = unlock;
       return (
@@ -479,12 +548,9 @@
           <div className="absolute bottom-0 left-0 w-10 h-10 pointer-events-none">
             {[...Array(50)].map((_, i) => (
               <div key={`lc-${i}`} className="absolute bottom-0 left-0 w-3 h-4 animate-confetti-left" style={{
-                '--tx': `${Math.random() * 60 + 10}vw`,
-                '--ty': `-${Math.random() * 80 + 30}vh`,
-                '--r': `${Math.random() * 720}deg`,
+                '--tx': `${Math.random() * 60 + 10}vw`, '--ty': `-${Math.random() * 80 + 30}vh`, '--r': `${Math.random() * 720}deg`,
                 backgroundColor: ['#7B929A', '#9CAE96', '#C7A38B', '#FDE047', '#F87171', '#60A5FA'][Math.floor(Math.random()*6)],
-                clipPath: Math.random() > 0.5 ? 'polygon(50% 0%, 0% 100%, 100% 100%)' : 'none',
-                borderRadius: Math.random() > 0.5 ? '50%' : '2px'
+                clipPath: Math.random() > 0.5 ? 'polygon(50% 0%, 0% 100%, 100% 100%)' : 'none', borderRadius: Math.random() > 0.5 ? '50%' : '2px'
               }}></div>
             ))}
           </div>
@@ -493,30 +559,21 @@
           <div className="absolute bottom-0 right-0 w-10 h-10 pointer-events-none">
             {[...Array(50)].map((_, i) => (
               <div key={`rc-${i}`} className="absolute bottom-0 right-0 w-3 h-4 animate-confetti-right" style={{
-                '--tx': `-${Math.random() * 60 + 10}vw`,
-                '--ty': `-${Math.random() * 80 + 30}vh`,
-                '--r': `${Math.random() * 720}deg`,
+                '--tx': `-${Math.random() * 60 + 10}vw`, '--ty': `-${Math.random() * 80 + 30}vh`, '--r': `${Math.random() * 720}deg`,
                 backgroundColor: ['#7B929A', '#9CAE96', '#C7A38B', '#FDE047', '#F87171', '#60A5FA'][Math.floor(Math.random()*6)],
-                clipPath: Math.random() > 0.5 ? 'polygon(50% 0%, 0% 100%, 100% 100%)' : 'none',
-                borderRadius: Math.random() > 0.5 ? '50%' : '2px'
+                clipPath: Math.random() > 0.5 ? 'polygon(50% 0%, 0% 100%, 100% 100%)' : 'none', borderRadius: Math.random() > 0.5 ? '50%' : '2px'
               }}></div>
             ))}
           </div>
 
-          {/* 背景煙火 (多發齊放) */}
+          {/* 背景煙火 */}
           {[...Array(4)].map((_, i) => (
-            <div key={`fw-${i}`} className="absolute pointer-events-none" style={{
-               left: `${15 + Math.random() * 70}%`,
-               top: `${10 + Math.random() * 40}%`,
-            }}>
+            <div key={`fw-${i}`} className="absolute pointer-events-none" style={{ left: `${15 + Math.random() * 70}%`, top: `${10 + Math.random() * 40}%`}}>
                {[...Array(25)].map((_, j) => (
                  <div key={`fwp-${j}`} className="absolute animate-firework w-2 h-2 rounded-full" style={{
-                   '--tx': `${(Math.random() - 0.5) * 300}px`,
-                   '--ty': `${(Math.random() - 0.5) * 300}px`,
-                   '--r': '0deg',
+                   '--tx': `${(Math.random() - 0.5) * 300}px`, '--ty': `${(Math.random() - 0.5) * 300}px`, '--r': '0deg',
                    backgroundColor: ['#FDE047', '#F87171', '#60A5FA', '#34D399'][Math.floor(Math.random()*4)],
-                   animationDelay: `${i * 0.3}s`,
-                   animationDuration: '1.5s'
+                   animationDelay: `${i * 0.3}s`, animationDuration: '1.5s'
                  }}></div>
                ))}
             </div>
@@ -525,16 +582,16 @@
           {/* 中央成就解鎖彈窗 */}
           <div className="bg-white rounded-[3rem] p-10 px-12 text-center shadow-[0_0_60px_rgba(0,0,0,0.3)] animate-pop-in relative z-10 max-w-sm mx-4 mt-16">
             
-            {/* 閃閃發光且擁有等級專屬顏色的巨大獎盃 */}
-            <div className={`absolute -top-20 left-1/2 -translate-x-1/2 w-36 h-36 rounded-full flex items-center justify-center animate-bounce-slow shadow-[0_10px_40px_rgba(0,0,0,0.2)] border-4 border-white ${tier.color}`}>
-              <Trophy size={64} className="text-white drop-shadow-md" />
-              {/* 獎盃旁邊的 CSS 閃爍星星特效 */}
+            {/* 動態發光的巨大龍珠 */}
+            <div className={`absolute -top-20 left-1/2 -translate-x-1/2 rounded-full animate-bounce-slow glow-${tier.glowClass}`}>
+              <DragonBall stars={tier.stars} size={140} />
+              {/* 旁邊的 CSS 閃爍星星特效點綴 */}
               <Star size={28} className="absolute -top-2 -right-4 text-yellow-300 animate-sparkle" fill="currentColor" />
               <Star size={18} className="absolute bottom-6 -left-6 text-yellow-300 animate-sparkle" fill="currentColor" style={{ animationDelay: '0.7s' }} />
               <Star size={12} className="absolute top-1/2 -right-6 text-white animate-sparkle" fill="currentColor" style={{ animationDelay: '1.2s' }} />
             </div>
             
-            <h2 className="text-2xl font-black mt-14 mb-2" style={{ color: '#4A4A4A' }}>
+            <h2 className="text-2xl font-black mt-16 mb-2" style={{ color: '#4A4A4A' }}>
               {unlock.isClaiming ? '成功領取成就！' : '解鎖新成就門檻！'}
             </h2>
             <p className="text-gray-500 mb-4 font-medium">
@@ -896,6 +953,15 @@
     }
 
     function AchievementWall({ stats, claimed, onClaim, showModal }) {
+      const checkEligibility = (prefixKey, threshold) => {
+        if (prefixKey === 'tf_full') return stats.tf_full_answered >= threshold.full;
+        if (prefixKey === 'mc_full') return stats.mc_full_answered >= threshold.full;
+        if (prefixKey === 'tf_random') return (threshold.random && stats.tf_random_completed >= threshold.random) || (threshold.random_perfect && stats.tf_random_perfect >= threshold.random_perfect);
+        if (prefixKey === 'mc_random') return (threshold.random && stats.mc_random_completed >= threshold.random) || (threshold.random_perfect && stats.mc_random_perfect >= threshold.random_perfect);
+        if (prefixKey === 'mock') return (threshold.mock && stats.mock_completed >= threshold.mock) || (threshold.mock_perfect && stats.mock_perfect >= threshold.mock_perfect);
+        return false;
+      };
+
       return (
         <div className="mt-8 pb-12">
           <div className="text-center mb-10"><h2 className="text-3xl font-bold mb-2" style={{ color: COLORS.textMain }}>成就獎章牆</h2><p style={{ color: COLORS.textMuted }}>達成門檻後，點擊發光的徽章解鎖成就！</p></div>
@@ -908,6 +974,7 @@
                     const achieveId = `${category}_${tier.id}`;
                     const isClaimed = claimed.includes(achieveId);
                     const isClaimable = checkEligibility(stats, category, tier.threshold) && !isClaimed;
+                    
                     const handleTrophyClick = () => {
                       if (isClaimable) onClaim(achieveId, category, tier);
                       else if (!isClaimed) {
@@ -916,15 +983,25 @@
                         else if (category.includes('random')) reqText = th.random_perfect ? `在「${prefix}」中，獲得 ${th.random_perfect} 次滿分。` : `在「${prefix}」中，完成 ${th.random} 次測驗。`;
                         else if (category === 'mock') reqText = th.mock_perfect ? `在「全真模擬測驗」中，獲得 ${th.mock_perfect} 次滿分。` : `完成 ${th.mock} 次全真模擬測驗。`;
                         showModal(`解鎖條件：${tier.name}`, reqText);
-                      } else showModal(`成就已達成：${tier.name}`, "太棒了！你已經獲得這個成就徽章囉！繼續保持！");
+                      } else showModal(`成就已達成：${tier.name}`, "太棒了！你已經獲得這顆龍珠囉！繼續保持！");
                     };
+
+                    let buttonClass = 'w-24 h-24 rounded-full flex items-center justify-center mb-3 transition-all duration-300 relative ';
+                    if (isClaimed) {
+                      buttonClass += 'glow-' + tier.glowClass + ' hover:scale-110 cursor-pointer';
+                    } else if (isClaimable) {
+                      buttonClass += 'breathing-halo hover:scale-110 cursor-pointer';
+                    } else {
+                      buttonClass += 'opacity-50 cursor-pointer hover:opacity-100 hover:scale-105';
+                    }
 
                     return (
                       <div key={achieveId} className="flex flex-col items-center">
-                        <button onClick={handleTrophyClick} className={`w-24 h-24 rounded-full flex items-center justify-center mb-3 transition-all duration-300 relative ${isClaimed ? tier.color + ' shadow-lg scale-100 text-white cursor-pointer hover:scale-105' : isClaimable ? 'bg-gray-200 cursor-pointer breathing-halo hover:scale-105' : 'bg-gray-100 opacity-60 cursor-pointer hover:opacity-100 hover:scale-105'}`}>
-                          {isClaimed ? <Star size={40} className="text-yellow-300 animate-star-glow" fill="currentColor" /> : isClaimable ? <div className="text-yellow-600 font-bold text-sm">點擊領取</div> : <Trophy size={32} className="text-gray-400" />}
+                        <button onClick={handleTrophyClick} className={buttonClass}>
+                          <DragonBall stars={tier.stars} size={84} isGrayscale={!isClaimed} />
+                          {isClaimable && <div className="absolute -bottom-1 text-white font-bold text-xs bg-yellow-500 px-3 py-1 rounded-full shadow-md animate-pulse z-10">點擊領取</div>}
                         </button>
-                        <div className="text-center">
+                        <div className="text-center mt-2">
                           <div className={`font-bold text-sm ${isClaimed ? 'text-gray-800' : 'text-gray-400'}`}>{tier.name}</div>
                           <div className="text-xs text-gray-400 mt-1">
                              {category.includes('full') && `累積 ${tier.threshold.full} 題`}
