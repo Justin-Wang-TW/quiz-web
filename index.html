@@ -39,12 +39,12 @@
     // 1. Firebase 初始化設定
     // ==========================================
     const fallbackConfig = {
-      apiKey: "AIzaSyCS9aa4aAL7Qw2rPQdnfx-zYgA575YllVw",
-      authDomain: "quiz-db627.firebaseapp.com",
-      projectId: "quiz-db627",
-      storageBucket: "quiz-db627.firebasestorage.app",
-      messagingSenderId: "613549084178",
-      appId: "1:613549084178:web:5df7a4036aa586a66a92cb"
+      apiKey: "請替換為你的_apiKey",
+      authDomain: "請替換為你的_authDomain",
+      projectId: "請替換為你的_projectId",
+      storageBucket: "請替換為你的_storageBucket",
+      messagingSenderId: "請替換為你的_messagingSenderId",
+      appId: "請替換為你的_appId"
     };
     
     const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : fallbackConfig;
@@ -61,7 +61,6 @@
       accent: '#C7A38B', textMain: '#4A4A4A', textMuted: '#8A8A8A', border: '#E8E6E1',
     };
 
-    // 擴充 stars 與專屬發光顏色類別 glowClass
     const ACHIEVEMENT_TIERS = [
       { id: 't1', name: '初心者', stars: 1, glowClass: 'gray', textColor: 'text-gray-500', threshold: { full: 50, random: 1, mock: 1 } },
       { id: 't2', name: '入門者', stars: 2, glowClass: 'green', textColor: 'text-green-500', threshold: { full: 100, random: 3, mock: 2 } },
@@ -75,7 +74,7 @@
     const PREFIXES = { tf_full: '是非題全題庫', mc_full: '選擇題全題庫', tf_random: '是非題隨堂測驗', mc_random: '選擇題隨堂測驗', mock: '模擬測驗' };
 
     // ==========================================
-    // 3. 工具函式與全域邏輯
+    // 3. 工具函式
     // ==========================================
     const parseCSV = (text) => {
       const result = [];
@@ -108,7 +107,6 @@
       return newArr;
     };
 
-    // 共用的成就資格驗證器 (用於即時偵測與獎章牆)
     const checkEligibility = (stats, prefixKey, threshold) => {
       if (!stats) return false;
       if (prefixKey === 'tf_full') return stats.tf_full_answered >= threshold.full;
@@ -141,8 +139,6 @@
 
       const [quizConfig, setQuizConfig] = useState(null);
       const [showConfetti, setShowConfetti] = useState(false);
-      
-      // 新增：華麗成就動畫隊列
       const [achievementQueue, setAchievementQueue] = useState([]);
 
       useEffect(() => {
@@ -182,6 +178,7 @@
             const formattedTf = parsedTf.map((row, index) => ({
               id: `tf_${index}`, type: 'tf', originalIndex: index,
               question: row[1] || '', answer: row[2] === 'O' ? 'O' : 'X', explanation: row[3] || '無解析',
+              isMultiple: false
             })).filter(q => q.question);
 
             const formattedMc = parsedMc.map((row, index) => {
@@ -249,33 +246,22 @@
         return () => { unsubMistakes(); unsubAchievements(); };
       }, [user]);
 
-      // 更新進度並即時偵測是否有新成就解鎖
       const updateStats = async (newStatsUpdates) => {
         if (!user) return;
         const updatedStats = { ...userStats, ...newStatsUpdates };
-        
-        // 偵測剛達成的成就
         const newlyUnlocked = [];
         Object.keys(PREFIXES).forEach(category => {
           ACHIEVEMENT_TIERS.forEach(tier => {
             const wasEligible = checkEligibility(userStats, category, tier.threshold);
             const isEligible = checkEligibility(updatedStats, category, tier.threshold);
-            // 如果原本沒有資格，現在有了，就推入華麗動畫佇列
-            if (!wasEligible && isEligible) {
-              newlyUnlocked.push({ category, tier });
-            }
+            if (!wasEligible && isEligible) newlyUnlocked.push({ category, tier });
           });
         });
 
-        if (newlyUnlocked.length > 0) {
-          setAchievementQueue(prev => [...prev, ...newlyUnlocked]);
-        }
-
+        if (newlyUnlocked.length > 0) setAchievementQueue(prev => [...prev, ...newlyUnlocked]);
         setUserStats(updatedStats);
         const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data');
-        try {
-          await setDoc(userDocRef, { stats: updatedStats }, { merge: true });
-        } catch (e) { console.error(e); }
+        try { await setDoc(userDocRef, { stats: updatedStats }, { merge: true }); } catch (e) { console.error(e); }
       };
 
       const saveProgress = async (mode, currentIndex) => {
@@ -283,9 +269,7 @@
         const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data');
         const updatedProgress = { ...userProgress, [mode]: currentIndex };
         setUserProgress(updatedProgress);
-        try {
-          await setDoc(userDocRef, { progress: updatedProgress }, { merge: true });
-        } catch (e) { console.error(e); }
+        try { await setDoc(userDocRef, { progress: updatedProgress }, { merge: true }); } catch (e) { console.error(e); }
       };
 
       const handleMistakeUpdate = async (question, isCorrect) => {
@@ -302,7 +286,9 @@
             }
           } else {
             await setDoc(mistakeRef, {
-              question: question.question, type: question.type, answer: question.answer,
+              question: question.question, type: question.type, 
+              isMultiple: question.isMultiple || false, // 確保多選狀態被儲存
+              answer: question.answer,
               options: question.options || null, explanation: question.explanation,
               streak: 0, lastFailed: new Date().toISOString()
             }, { merge: true });
@@ -330,7 +316,11 @@
           questions = [...shuffleArray(tfBank).slice(0, 50), ...shuffleArray(mcBank).slice(0, 50)];
           timeLimit = 50 * 60;
         } else if (mode === 'mistakes') {
-          questions = shuffleArray(mistakes);
+          // 處理錯題：確保 isMultiple 屬性存在 (舊資料自動判斷)
+          questions = shuffleArray(mistakes).map(m => ({
+            ...m,
+            isMultiple: m.isMultiple !== undefined ? m.isMultiple : (m.type === 'mc' && m.answer.length > 1)
+          }));
         }
 
         if (questions.length === 0 && mode !== 'mistakes') {
@@ -369,7 +359,6 @@
             </div>
           </header>
 
-          {/* 一般訊息 Modal */}
           {modalConfig && (
             <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm">
               <div className="bg-white rounded-3xl p-8 max-w-sm w-full mx-4 shadow-2xl">
@@ -389,7 +378,6 @@
             </div>
           )}
 
-          {/* 全畫面華麗成就解鎖動畫 (Celebration Overlay) */}
           {achievementQueue.length > 0 && (
             <CelebrationOverlay 
               unlock={achievementQueue[0]} 
@@ -397,7 +385,6 @@
             />
           )}
 
-          {/* 獎章牆手動領取的簡易煙火 */}
           {showConfetti && (
             <div className="fixed inset-0 pointer-events-none z-50 flex items-center justify-center overflow-hidden">
                {[...Array(30)].map((_, i) => (
@@ -423,57 +410,33 @@
               <AchievementWall stats={userStats} claimed={claimedAchievements} showModal={showModal} onClaim={async (id, category, tier) => {
                   if(!user) return;
                   await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'achievements', id), { claimedAt: new Date().toISOString() });
-                  // 領取時，將成就推入華麗動畫隊列
                   setAchievementQueue(prev => [...prev, { category, tier, isClaiming: true }]);
                 }} />
             )}
           </main>
 
-          {/* 全局動畫 CSS 定義 */}
           <style dangerouslySetInnerHTML={{__html: `
             @keyframes firework { 0% { transform: translate(0,0) rotate(0deg) scale(1); opacity: 1; } 100% { transform: translate(var(--tx), var(--ty)) rotate(var(--r)) scale(0); opacity: 0; } }
             .animate-firework { animation: firework 1.5s ease-out forwards; }
             @keyframes slide-in-right { from { transform: translateX(100%); } to { transform: translateX(0); } }
             .animate-slide-in-right { animation: slide-in-right 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-
-            /* 華麗慶祝專屬動畫 */
             @keyframes pop-in { 0% { transform: scale(0.5); opacity: 0; } 70% { transform: scale(1.05); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
             .animate-pop-in { animation: pop-in 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
-            
             @keyframes shoot-left { 0% { transform: translate(0, 0) rotate(0deg) scale(1); opacity: 1; } 100% { transform: translate(var(--tx), var(--ty)) rotate(var(--r)) scale(0.6); opacity: 0; } }
             .animate-confetti-left { animation: shoot-left 2.5s ease-out forwards; }
-            
             @keyframes shoot-right { 0% { transform: translate(0, 0) rotate(0deg) scale(1); opacity: 1; } 100% { transform: translate(var(--tx), var(--ty)) rotate(var(--r)) scale(0.6); opacity: 0; } }
             .animate-confetti-right { animation: shoot-right 2.5s ease-out forwards; }
-
             @keyframes bounce-slow { 0%, 100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, -15px); } }
             .animate-bounce-slow { animation: bounce-slow 3s infinite ease-in-out; }
-
             @keyframes sparkle { 0%, 100% { opacity: 0; transform: scale(0) rotate(0deg); } 50% { opacity: 1; transform: scale(1) rotate(180deg); } }
             .animate-sparkle { animation: sparkle 2s infinite ease-in-out; }
-
-            @keyframes star-glow { 
-              0%, 100% { transform: scale(1); filter: drop-shadow(0 0 5px rgba(253, 224, 71, 0.6)); } 
-              50% { transform: scale(1.15); filter: drop-shadow(0 0 15px rgba(253, 224, 71, 1)); } 
-            }
-            .animate-star-glow { animation: star-glow 2s infinite ease-in-out; }
-
-            /* 龍珠發光動畫 (依據等級顏色) */
             @keyframes glow-gray { 0%, 100% { filter: drop-shadow(0 0 8px rgba(156,163,175,0.6)); } 50% { filter: drop-shadow(0 0 20px rgba(156,163,175,1)); } }
             @keyframes glow-green { 0%, 100% { filter: drop-shadow(0 0 8px rgba(34,197,94,0.6)); } 50% { filter: drop-shadow(0 0 20px rgba(34,197,94,1)); } }
             @keyframes glow-blue { 0%, 100% { filter: drop-shadow(0 0 8px rgba(56,189,248,0.6)); } 50% { filter: drop-shadow(0 0 20px rgba(56,189,248,1)); } }
             @keyframes glow-yellow { 0%, 100% { filter: drop-shadow(0 0 8px rgba(234,179,8,0.6)); } 50% { filter: drop-shadow(0 0 20px rgba(234,179,8,1)); } }
             @keyframes glow-purple { 0%, 100% { filter: drop-shadow(0 0 8px rgba(168,85,247,0.6)); } 50% { filter: drop-shadow(0 0 20px rgba(168,85,247,1)); } }
             @keyframes glow-red { 0%, 100% { filter: drop-shadow(0 0 8px rgba(239,68,68,0.6)); } 50% { filter: drop-shadow(0 0 20px rgba(239,68,68,1)); } }
-            @keyframes glow-rainbow { 
-              0% { filter: drop-shadow(0 0 20px rgba(239,68,68,0.9)); } 
-              20% { filter: drop-shadow(0 0 20px rgba(234,179,8,0.9)); } 
-              40% { filter: drop-shadow(0 0 20px rgba(34,197,94,0.9)); } 
-              60% { filter: drop-shadow(0 0 20px rgba(56,189,248,0.9)); } 
-              80% { filter: drop-shadow(0 0 20px rgba(168,85,247,0.9)); } 
-              100% { filter: drop-shadow(0 0 20px rgba(239,68,68,0.9)); } 
-            }
-
+            @keyframes glow-rainbow { 0% { filter: drop-shadow(0 0 20px rgba(239,68,68,0.9)); } 20% { filter: drop-shadow(0 0 20px rgba(234,179,8,0.9)); } 40% { filter: drop-shadow(0 0 20px rgba(34,197,94,0.9)); } 60% { filter: drop-shadow(0 0 20px rgba(56,189,248,0.9)); } 80% { filter: drop-shadow(0 0 20px rgba(168,85,247,0.9)); } 100% { filter: drop-shadow(0 0 20px rgba(239,68,68,0.9)); } }
             .glow-gray { animation: glow-gray 2s infinite ease-in-out; }
             .glow-green { animation: glow-green 2s infinite ease-in-out; }
             .glow-blue { animation: glow-blue 2s infinite ease-in-out; }
@@ -481,18 +444,14 @@
             .glow-purple { animation: glow-purple 2s infinite ease-in-out; }
             .glow-red { animation: glow-red 2s infinite ease-in-out; }
             .glow-rainbow { animation: glow-rainbow 3s infinite linear; }
+            .breathing-halo { box-shadow: 0 0 15px 5px rgba(253, 224, 71, 0.4); animation: breath 2s infinite alternate; }
+            @keyframes breath { from { box-shadow: 0 0 10px 2px rgba(253, 224, 71, 0.4); } to { box-shadow: 0 0 25px 8px rgba(253, 224, 71, 0.7); } }
           `}} />
         </div>
       );
     }
 
-    // ==========================================
-    // 5. 子元件定義
-    // ==========================================
-
-    // 新增：七龍珠 SVG 繪製元件 (依據星數決定排版)
     function DragonBall({ stars, size = 80, isGrayscale = false }) {
-      // 1-7星的座標分佈 (以 100x100 的 viewBox 為基準)
       const starPositions = {
         1: [[50, 50]],
         2: [[35, 50], [65, 50]],
@@ -502,108 +461,59 @@
         6: [[35, 25], [65, 25], [20, 50], [80, 50], [35, 75], [65, 75]],
         7: [[50, 20], [25, 40], [75, 40], [25, 70], [75, 70], [50, 55], [50, 85]]
       };
-      
       const positions = starPositions[stars] || starPositions[1];
-
+      const ballId = `ballGrad-${stars}`;
       return (
         <svg width={size} height={size} viewBox="0 0 100 100" style={{ filter: isGrayscale ? 'grayscale(100%) opacity(0.5)' : 'none', transition: 'all 0.3s' }}>
           <defs>
-            <radialGradient id="ballGrad" cx="35%" cy="35%" r="65%">
-              <stop offset="0%" stopColor="#ffeba6" />
-              <stop offset="25%" stopColor="#f59e0b" />
-              <stop offset="75%" stopColor="#ea580c" />
-              <stop offset="100%" stopColor="#9a3412" />
+            <radialGradient id={ballId} cx="35%" cy="35%" r="65%">
+              <stop offset="0%" stopColor="#ffeba6" /><stop offset="25%" stopColor="#f59e0b" /><stop offset="75%" stopColor="#ea580c" /><stop offset="100%" stopColor="#9a3412" />
             </radialGradient>
             <radialGradient id="highlight" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="white" stopOpacity="0.7" />
-              <stop offset="100%" stopColor="white" stopOpacity="0" />
+              <stop offset="0%" stopColor="white" stopOpacity="0.7" /><stop offset="100%" stopColor="white" stopOpacity="0" />
             </radialGradient>
           </defs>
-          
-          {/* 橘黃色龍珠本體 */}
-          <circle cx="50" cy="50" r="48" fill="url(#ballGrad)" />
-          
-          {/* 玻璃反光質感 */}
+          <circle cx="50" cy="50" r="48" fill={`url(#${ballId})`} />
           <ellipse cx="32" cy="25" rx="20" ry="12" fill="url(#highlight)" transform="rotate(-30 32 25)" />
-          
-          {/* 內部紅色星星 */}
           {positions.map((pos, i) => (
-             <path key={i} 
-               d="M0 -6 L1.4 -1.8 L6 -1.8 L2.3 1 L3.6 5.5 L0 3 L-3.6 5.5 L-2.3 1 L-6 -1.8 L-1.4 -1.8 Z"
-               fill="#dc2626" 
-               transform={`translate(${pos[0]}, ${pos[1]}) scale(1.6)`} 
-             />
+             <path key={i} d="M0 -6 L1.4 -1.8 L6 -1.8 L2.3 1 L3.6 5.5 L0 3 L-3.6 5.5 L-2.3 1 L-6 -1.8 L-1.4 -1.8 Z" fill="#dc2626" transform={`translate(${pos[0]}, ${pos[1]}) scale(1.6)`} />
           ))}
         </svg>
       );
     }
 
-    // 華麗成就解鎖動畫圖層 (Celebration Overlay)
     function CelebrationOverlay({ unlock, onClose }) {
       const { category, tier } = unlock;
       return (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-sm overflow-hidden">
-          
-          {/* 左下角噴發彩帶 */}
           <div className="absolute bottom-0 left-0 w-10 h-10 pointer-events-none">
             {[...Array(50)].map((_, i) => (
-              <div key={`lc-${i}`} className="absolute bottom-0 left-0 w-3 h-4 animate-confetti-left" style={{
-                '--tx': `${Math.random() * 60 + 10}vw`, '--ty': `-${Math.random() * 80 + 30}vh`, '--r': `${Math.random() * 720}deg`,
-                backgroundColor: ['#7B929A', '#9CAE96', '#C7A38B', '#FDE047', '#F87171', '#60A5FA'][Math.floor(Math.random()*6)],
-                clipPath: Math.random() > 0.5 ? 'polygon(50% 0%, 0% 100%, 100% 100%)' : 'none', borderRadius: Math.random() > 0.5 ? '50%' : '2px'
-              }}></div>
+              <div key={`lc-${i}`} className="absolute bottom-0 left-0 w-3 h-4 animate-confetti-left" style={{ '--tx': `${Math.random() * 60 + 10}vw`, '--ty': `-${Math.random() * 80 + 30}vh`, '--r': `${Math.random() * 720}deg`, backgroundColor: ['#7B929A', '#9CAE96', '#C7A38B', '#FDE047', '#F87171', '#60A5FA'][Math.floor(Math.random()*6)], clipPath: Math.random() > 0.5 ? 'polygon(50% 0%, 0% 100%, 100% 100%)' : 'none', borderRadius: Math.random() > 0.5 ? '50%' : '2px' }}></div>
             ))}
           </div>
-
-          {/* 右下角噴發彩帶 */}
           <div className="absolute bottom-0 right-0 w-10 h-10 pointer-events-none">
             {[...Array(50)].map((_, i) => (
-              <div key={`rc-${i}`} className="absolute bottom-0 right-0 w-3 h-4 animate-confetti-right" style={{
-                '--tx': `-${Math.random() * 60 + 10}vw`, '--ty': `-${Math.random() * 80 + 30}vh`, '--r': `${Math.random() * 720}deg`,
-                backgroundColor: ['#7B929A', '#9CAE96', '#C7A38B', '#FDE047', '#F87171', '#60A5FA'][Math.floor(Math.random()*6)],
-                clipPath: Math.random() > 0.5 ? 'polygon(50% 0%, 0% 100%, 100% 100%)' : 'none', borderRadius: Math.random() > 0.5 ? '50%' : '2px'
-              }}></div>
+              <div key={`rc-${i}`} className="absolute bottom-0 right-0 w-3 h-4 animate-confetti-right" style={{ '--tx': `-${Math.random() * 60 + 10}vw`, '--ty': `-${Math.random() * 80 + 30}vh`, '--r': `${Math.random() * 720}deg`, backgroundColor: ['#7B929A', '#9CAE96', '#C7A38B', '#FDE047', '#F87171', '#60A5FA'][Math.floor(Math.random()*6)], clipPath: Math.random() > 0.5 ? 'polygon(50% 0%, 0% 100%, 100% 100%)' : 'none', borderRadius: Math.random() > 0.5 ? '50%' : '2px' }}></div>
             ))}
           </div>
-
-          {/* 背景煙火 */}
           {[...Array(4)].map((_, i) => (
             <div key={`fw-${i}`} className="absolute pointer-events-none" style={{ left: `${15 + Math.random() * 70}%`, top: `${10 + Math.random() * 40}%`}}>
                {[...Array(25)].map((_, j) => (
-                 <div key={`fwp-${j}`} className="absolute animate-firework w-2 h-2 rounded-full" style={{
-                   '--tx': `${(Math.random() - 0.5) * 300}px`, '--ty': `${(Math.random() - 0.5) * 300}px`, '--r': '0deg',
-                   backgroundColor: ['#FDE047', '#F87171', '#60A5FA', '#34D399'][Math.floor(Math.random()*4)],
-                   animationDelay: `${i * 0.3}s`, animationDuration: '1.5s'
-                 }}></div>
+                 <div key={`fwp-${j}`} className="absolute animate-firework w-2 h-2 rounded-full" style={{ '--tx': `${(Math.random() - 0.5) * 300}px`, '--ty': `${(Math.random() - 0.5) * 300}px`, '--r': '0deg', backgroundColor: ['#FDE047', '#F87171', '#60A5FA', '#34D399'][Math.floor(Math.random()*4)], animationDelay: `${i * 0.3}s`, animationDuration: '1.5s' }}></div>
                ))}
             </div>
           ))}
-
-          {/* 中央成就解鎖彈窗 */}
           <div className="bg-white rounded-[3rem] p-10 px-12 text-center shadow-[0_0_60px_rgba(0,0,0,0.3)] animate-pop-in relative z-10 max-w-sm mx-4 mt-16">
-            
-            {/* 動態發光的巨大龍珠 */}
             <div className={`absolute -top-20 left-1/2 -translate-x-1/2 rounded-full animate-bounce-slow glow-${tier.glowClass}`}>
               <DragonBall stars={tier.stars} size={140} />
-              {/* 旁邊的 CSS 閃爍星星特效點綴 */}
               <Star size={28} className="absolute -top-2 -right-4 text-yellow-300 animate-sparkle" fill="currentColor" />
               <Star size={18} className="absolute bottom-6 -left-6 text-yellow-300 animate-sparkle" fill="currentColor" style={{ animationDelay: '0.7s' }} />
               <Star size={12} className="absolute top-1/2 -right-6 text-white animate-sparkle" fill="currentColor" style={{ animationDelay: '1.2s' }} />
             </div>
-            
-            <h2 className="text-2xl font-black mt-16 mb-2" style={{ color: '#4A4A4A' }}>
-              {unlock.isClaiming ? '成功領取成就！' : '解鎖新成就門檻！'}
-            </h2>
-            <p className="text-gray-500 mb-4 font-medium">
-              {PREFIXES[category]}
-            </p>
-            <div className={`text-4xl font-black mb-8 ${tier.textColor || 'text-gray-800'}`}>
-               {tier.name}
-            </div>
-            
-            <button onClick={onClose} className="w-full py-4 rounded-full text-white font-bold text-lg hover:scale-105 transition-transform shadow-md" style={{ backgroundColor: '#9CAE96' }}>
-              {unlock.isClaiming ? '太棒了！' : '繼續答題'}
-            </button>
+            <h2 className="text-2xl font-black mt-16 mb-2" style={{ color: '#4A4A4A' }}>{unlock.isClaiming ? '成功領取成就！' : '解鎖新成就門檻！'}</h2>
+            <p className="text-gray-500 mb-4 font-medium">{PREFIXES[category]}</p>
+            <div className={`text-4xl font-black mb-8 ${tier.textColor || 'text-gray-800'}`}>{tier.name}</div>
+            <button onClick={onClose} className="w-full py-4 rounded-full text-white font-bold text-lg hover:scale-105 transition-transform shadow-md" style={{ backgroundColor: '#9CAE96' }}>{unlock.isClaiming ? '太棒了！' : '繼續答題'}</button>
           </div>
         </div>
       );
@@ -613,35 +523,27 @@
       return (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
           <div className="bg-white rounded-[3.5rem] p-8 shadow-sm border border-[#E8E6E1] flex flex-col items-center text-center">
-            <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: `${COLORS.secondary}20` }}>
-              <BookOpen size={32} style={{ color: COLORS.secondary }} />
-            </div>
+            <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: `${COLORS.secondary}20` }}><BookOpen size={32} style={{ color: COLORS.secondary }} /></div>
             <h2 className="text-xl font-bold mb-2" style={{ color: COLORS.textMain }}>全題庫練習</h2>
             <p className="mb-6 text-sm" style={{ color: COLORS.textMuted }}>依照順序，穩紮穩打完成所有題目。</p>
             <button onClick={() => startQuiz('tf_full')} className="w-full py-4 rounded-3xl mb-3 font-medium transition-transform hover:scale-[1.02] text-white" style={{ backgroundColor: COLORS.secondary }}>是非題 ({tfProgress}/{tfTotal})</button>
             <button onClick={() => startQuiz('mc_full')} className="w-full py-4 rounded-3xl font-medium transition-transform hover:scale-[1.02] text-white" style={{ backgroundColor: COLORS.secondary }}>選擇題 ({mcProgress}/{mcTotal})</button>
           </div>
           <div className="bg-white rounded-[3.5rem] p-8 shadow-sm border border-[#E8E6E1] flex flex-col items-center text-center">
-            <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: `${COLORS.primary}20` }}>
-              <Clock size={32} style={{ color: COLORS.primary }} />
-            </div>
+            <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: `${COLORS.primary}20` }}><Clock size={32} style={{ color: COLORS.primary }} /></div>
             <h2 className="text-xl font-bold mb-2" style={{ color: COLORS.textMain }}>隨機 20 題練習</h2>
             <p className="mb-6 text-sm" style={{ color: COLORS.textMuted }}>打亂順序，快速檢驗學習成效。</p>
             <button onClick={() => startQuiz('tf_random')} className="w-full py-4 rounded-3xl mb-3 font-medium transition-transform hover:scale-[1.02] text-white" style={{ backgroundColor: COLORS.primary }}>是非題隨堂測驗</button>
             <button onClick={() => startQuiz('mc_random')} className="w-full py-4 rounded-3xl font-medium transition-transform hover:scale-[1.02] text-white" style={{ backgroundColor: COLORS.primary }}>選擇題隨堂測驗</button>
           </div>
           <div className="bg-white rounded-[3.5rem] p-8 shadow-sm border border-[#E8E6E1] flex flex-col items-center text-center md:col-span-2">
-            <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: `${COLORS.accent}20` }}>
-              <Star size={32} style={{ color: COLORS.accent }} />
-            </div>
+            <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: `${COLORS.accent}20` }}><Star size={32} style={{ color: COLORS.accent }} /></div>
             <h2 className="text-xl font-bold mb-2" style={{ color: COLORS.textMain }}>全真模擬試題</h2>
             <p className="mb-6 text-sm" style={{ color: COLORS.textMuted }}>是非 50 題 + 選擇 50 題，限時 100 分鐘。</p>
             <button onClick={() => startQuiz('mock')} className="w-full max-w-md py-4 rounded-3xl font-medium transition-transform hover:scale-[1.02] text-white" style={{ backgroundColor: COLORS.accent }}>開始全真模擬</button>
           </div>
           <div className="bg-white rounded-[3.5rem] p-8 shadow-sm border border-[#E8E6E1] flex flex-col items-center text-center md:col-span-2">
-             <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4 bg-red-50">
-              <AlertCircle size={32} className="text-red-400" />
-            </div>
+             <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4 bg-red-50"><AlertCircle size={32} className="text-red-400" /></div>
             <h2 className="text-xl font-bold mb-2" style={{ color: COLORS.textMain }}>錯題強化練習</h2>
             <p className="mb-6 text-sm" style={{ color: COLORS.textMuted }}>針對曾答錯的題目進行特訓。需連續答對 3 次才能移出錯題本喔！</p>
             <button onClick={() => mistakeCount > 0 ? startQuiz('mistakes') : showModal('提示', '目前沒有錯題喔！繼續保持！')} className={`w-full max-w-md py-4 rounded-3xl font-medium transition-transform hover:scale-[1.02] ${mistakeCount > 0 ? 'bg-red-400 text-white shadow-md' : 'bg-gray-200 text-gray-500 cursor-not-allowed'}`}>進入強化庫 ({mistakeCount} 題)</button>
@@ -682,7 +584,11 @@
         if (!user || !currentQ) return;
         const mistakeRef = doc(db, 'artifacts', appId, 'users', user.uid, 'mistakes', currentQ.id);
         if (isBookmarked) await deleteDoc(mistakeRef);
-        else await setDoc(mistakeRef, { question: currentQ.question, type: currentQ.type, answer: currentQ.answer, options: currentQ.options || null, explanation: currentQ.explanation, streak: 0, bookmarked: true, lastFailed: new Date().toISOString() }, { merge: true });
+        else await setDoc(mistakeRef, { 
+            question: currentQ.question, type: currentQ.type, 
+            isMultiple: currentQ.isMultiple || false, // 確保書籤也儲存多選狀態
+            answer: currentQ.answer, options: currentQ.options || null, explanation: currentQ.explanation, streak: 0, bookmarked: true, lastFailed: new Date().toISOString() 
+        }, { merge: true });
       };
 
       useEffect(() => {
@@ -712,7 +618,6 @@
         } else newSelected = ans;
         
         setSelectedAnswer(newSelected);
-
         if (mode === 'mock') {
           const newAnswers = [...userAnswers];
           newAnswers[currentIndex] = { selectedAnswer: newSelected };
@@ -773,7 +678,6 @@
               setIsAnswered(!!userAnswers[50]); setShowExplanation(false);
           }); return;
         }
-
         if (currentIndex < questions.length - 1) {
           setCurrentIndex(c => c + 1);
           setSelectedAnswer(userAnswers[currentIndex + 1]?.selectedAnswer || null);
@@ -902,9 +806,7 @@
                 <div className="grid grid-cols-2 gap-4">
                   {['O', 'X'].map((opt) => (
                     <button key={opt} onClick={() => handleSelect(opt)} disabled={isAnswered && !isFullMode && mode !== 'mock'}
-                      className={`py-6 rounded-3xl text-2xl font-bold border-2 transition-all ${selectedAnswer === opt ? mode === 'mock' ? 'bg-blue-50 border-blue-400 text-blue-600' : isAnswered ? opt === currentQ.answer ? 'bg-green-50 border-green-500 text-green-600' : 'bg-red-50 border-red-500 text-red-600' : 'bg-blue-50 border-blue-400 text-blue-600' : isAnswered && opt === currentQ.answer && mode !== 'mock' ? 'bg-green-50 border-green-500 text-green-600 opacity-50' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'}`}>
-                      {opt}
-                    </button>
+                      className={`py-6 rounded-3xl text-2xl font-bold border-2 transition-all ${selectedAnswer === opt ? mode === 'mock' ? 'bg-blue-50 border-blue-400 text-blue-600' : isAnswered ? opt === currentQ.answer ? 'bg-green-50 border-green-500 text-green-600' : 'bg-red-50 border-red-500 text-red-600' : 'bg-blue-50 border-blue-400 text-blue-600' : isAnswered && opt === currentQ.answer && mode !== 'mock' ? 'bg-green-50 border-green-500 text-green-600 opacity-50' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'}`}>{opt}</button>
                   ))}
                 </div>
               ) : (
@@ -953,15 +855,6 @@
     }
 
     function AchievementWall({ stats, claimed, onClaim, showModal }) {
-      const checkEligibility = (prefixKey, threshold) => {
-        if (prefixKey === 'tf_full') return stats.tf_full_answered >= threshold.full;
-        if (prefixKey === 'mc_full') return stats.mc_full_answered >= threshold.full;
-        if (prefixKey === 'tf_random') return (threshold.random && stats.tf_random_completed >= threshold.random) || (threshold.random_perfect && stats.tf_random_perfect >= threshold.random_perfect);
-        if (prefixKey === 'mc_random') return (threshold.random && stats.mc_random_completed >= threshold.random) || (threshold.random_perfect && stats.mc_random_perfect >= threshold.random_perfect);
-        if (prefixKey === 'mock') return (threshold.mock && stats.mock_completed >= threshold.mock) || (threshold.mock_perfect && stats.mock_perfect >= threshold.mock_perfect);
-        return false;
-      };
-
       return (
         <div className="mt-8 pb-12">
           <div className="text-center mb-10"><h2 className="text-3xl font-bold mb-2" style={{ color: COLORS.textMain }}>成就獎章牆</h2><p style={{ color: COLORS.textMuted }}>達成門檻後，點擊發光的徽章解鎖成就！</p></div>
@@ -973,8 +866,8 @@
                   {ACHIEVEMENT_TIERS.map(tier => {
                     const achieveId = `${category}_${tier.id}`;
                     const isClaimed = claimed.includes(achieveId);
-                    const isClaimable = checkEligibility(stats, category, tier.threshold) && !isClaimed;
-                    
+                    const isEligible = checkEligibility(stats, category, tier.threshold);
+                    const isClaimable = isEligible && !isClaimed;
                     const handleTrophyClick = () => {
                       if (isClaimable) onClaim(achieveId, category, tier);
                       else if (!isClaimed) {
@@ -985,16 +878,10 @@
                         showModal(`解鎖條件：${tier.name}`, reqText);
                       } else showModal(`成就已達成：${tier.name}`, "太棒了！你已經獲得這顆龍珠囉！繼續保持！");
                     };
-
                     let buttonClass = 'w-24 h-24 rounded-full flex items-center justify-center mb-3 transition-all duration-300 relative ';
-                    if (isClaimed) {
-                      buttonClass += 'glow-' + tier.glowClass + ' hover:scale-110 cursor-pointer';
-                    } else if (isClaimable) {
-                      buttonClass += 'breathing-halo hover:scale-110 cursor-pointer';
-                    } else {
-                      buttonClass += 'opacity-50 cursor-pointer hover:opacity-100 hover:scale-105';
-                    }
-
+                    if (isClaimed) buttonClass += 'glow-' + tier.glowClass + ' hover:scale-110 cursor-pointer';
+                    else if (isClaimable) buttonClass += 'breathing-halo hover:scale-110 cursor-pointer';
+                    else buttonClass += 'opacity-50 cursor-pointer hover:opacity-100 hover:scale-105';
                     return (
                       <div key={achieveId} className="flex flex-col items-center">
                         <button onClick={handleTrophyClick} className={buttonClass}>
@@ -1021,8 +908,6 @@
         </div>
       );
     }
-
-    // 將 React 應用渲染到畫面上
     const root = createRoot(document.getElementById('root'));
     root.render(<App />);
   </script>
